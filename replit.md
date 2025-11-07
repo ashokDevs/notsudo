@@ -53,10 +53,22 @@ A cloud-based GitHub automation service that responds to @my-tool mentions in is
 - `SESSION_SECRET` - Already configured
 
 ## Recent Changes
-- **2025-11-07**: Initial project setup and architecture planning
+- **2025-11-07**: Complete MVP implementation
+  - Next.js frontend with TypeScript, Tailwind CSS, and Shadcn UI
+  - Flask backend with GitHub webhook handler and OpenAI integration
+  - Webhook signature verification for security
+  - Persistent job tracking system
+  - Next.js API proxy to Flask backend
+  - Dashboard with configuration, webhook setup, and job history tabs
 
 ## User Preferences
 - Backend in Python (Flask)
 - Frontend in Next.js with TypeScript
 - Use Tailwind CSS and Shadcn UI library
 - Focus on cloud-based agent automation
+
+## Known Issues & Limitations
+- Job storage uses temporary files (`/tmp`), not persisted across restarts
+- Maximum 15 files analyzed per issue (configurable in `github_service.py`)
+- File content limited to 2000 characters for AI context
+- Webhook secret is optional but highly recommended for production use
