@@ -41,3 +41,8 @@ externalPort = 8000
 [[ports]]
 localPort = 42897
 externalPort = 3000
+
+[deployment]
+deploymentTarget = "vm"
+run = ["bash", "-c", "cd backend && python app.py & cd frontend && npm run build && npm start"]
+build = ["bash", "-c", "cd frontend && npm install"]
