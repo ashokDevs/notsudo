@@ -234,7 +234,24 @@ def get_job_logs(job_id):
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    return jsonify({'status': 'healthy'}), 200
+    """Health check endpoint to verify deployment status."""
+    config = load_config()
+    
+    # Check required environment variables
+    checks = {
+        'github_token': bool(config.get('github_token')),
+        'openrouter_key': bool(config.get('openrouter_key')),
+    }
+    
+    all_healthy = all(checks.values())
+    
+    return jsonify({
+        'status': 'healthy' if all_healthy else 'degraded',
+        'timestamp': datetime.now().isoformat(),
+        'checks': checks,
+        'environment': os.environ.get('FLASK_ENV', 'production'),
+        'version': '1.0.0'
+    }), 200 if all_healthy else 503
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)
