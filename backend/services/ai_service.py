@@ -4,7 +4,7 @@ from openai import OpenAI
 from utils.logger import get_logger
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free")
+DEFAULT_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-5-nano")
 
 logger = get_logger(__name__)
 
@@ -85,6 +85,10 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
 
         logger.info("calling_llm", model=self.model, prompt_length=len(user_prompt))
         
+        # Log full prompts for debugging
+        logger.debug("system_prompt", prompt=system_prompt)
+        logger.debug("user_prompt", prompt=user_prompt[:5000])  # First 5k chars
+        
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -98,6 +102,7 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
             
             message = response.choices[0].message
             
+            # Log raw response for debugging
             logger.info(
                 "llm_response_received",
                 has_tool_calls=bool(message.tool_calls),
@@ -105,26 +110,62 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
                 content_length=len(message.content) if message.content else 0
             )
             
+            # Log content/analysis from the model
+            if message.content:
+                logger.debug("llm_content", content=message.content[:2000])
+            
+            # Log raw tool calls
+            if message.tool_calls:
+                for i, tc in enumerate(message.tool_calls):
+                    logger.info(
+                        "tool_call_raw",
+                        index=i,
+                        function_name=tc.function.name,
+                        arguments_preview=tc.function.arguments[:500] if tc.function.arguments else None
+                    )
+            
             file_changes = []
             if message.tool_calls:
                 for tool_call in message.tool_calls:
+                    logger.debug(
+                        "processing_tool_call",
+                        function_name=tool_call.function.name,
+                        raw_args=tool_call.function.arguments[:1000] if tool_call.function.arguments else None
+                    )
+                    
                     if tool_call.function.name == "edit_file":
-                        args = json.loads(tool_call.function.arguments)
-                        file_path = args.get('file_path')
-                        reason = args.get('reason')
-                        
-                        logger.info(
-                            "file_change_suggested",
-                            file_path=file_path,
-                            reason=reason,
-                            content_length=len(args.get('new_content', ''))
+                        try:
+                            args = json.loads(tool_call.function.arguments)
+                            file_path = args.get('file_path')
+                            reason = args.get('reason')
+                            new_content = args.get('new_content', '')
+                            
+                            logger.info(
+                                "file_change_parsed",
+                                file_path=file_path,
+                                reason=reason,
+                                content_length=len(new_content),
+                                content_preview=new_content[:200] if new_content else None
+                            )
+                            
+                            file_changes.append({
+                                'file_path': file_path,
+                                'new_content': new_content,
+                                'reason': reason
+                            })
+                        except json.JSONDecodeError as e:
+                            logger.error(
+                                "tool_call_parse_error",
+                                error=str(e),
+                                raw_args=tool_call.function.arguments[:500]
+                            )
+                    else:
+                        logger.warning(
+                            "unknown_tool_call",
+                            function_name=tool_call.function.name
                         )
-                        
-                        file_changes.append({
-                            'file_path': file_path,
-                            'new_content': args.get('new_content'),
-                            'reason': reason
-                        })
+            else:
+                logger.warning("no_tool_calls_in_response", content=message.content[:500] if message.content else None)
             
             logger.info("analysis_complete", total_changes=len(file_changes))
             
@@ -195,7 +236,8 @@ Test Error Logs:
 
 Analyze the errors and provide fixed versions of the files using edit_file."""
 
-        logger.info("calling_llm_for_fix", model=self.model)
+        logger.info("calling_llm_for_fix", model=self.model, prompt_length=len(user_prompt))
+        logger.debug("fix_user_prompt", prompt=user_prompt[:3000])
 
         try:
             response = self.client.chat.completions.create(
@@ -210,21 +252,39 @@ Analyze the errors and provide fixed versions of the files using edit_file."""
             
             message = response.choices[0].message
             
+            logger.info(
+                "fix_llm_response",
+                has_tool_calls=bool(message.tool_calls),
+                tool_calls_count=len(message.tool_calls) if message.tool_calls else 0
+            )
+            
+            if message.content:
+                logger.debug("fix_llm_content", content=message.content[:1000])
+            
             file_changes = []
             if message.tool_calls:
                 for tool_call in message.tool_calls:
+                    logger.debug(
+                        "fix_tool_call_raw",
+                        function_name=tool_call.function.name,
+                        args_preview=tool_call.function.arguments[:500] if tool_call.function.arguments else None
+                    )
+                    
                     if tool_call.function.name == "edit_file":
-                        args = json.loads(tool_call.function.arguments)
-                        file_path = args.get('file_path')
-                        reason = args.get('reason', 'Fix test failure')
-                        
-                        logger.info("fix_suggested", file_path=file_path, reason=reason)
-                        
-                        file_changes.append({
-                            'file_path': file_path,
-                            'new_content': args.get('new_content'),
-                            'reason': reason
-                        })
+                        try:
+                            args = json.loads(tool_call.function.arguments)
+                            file_path = args.get('file_path')
+                            reason = args.get('reason', 'Fix test failure')
+                            
+                            logger.info("fix_parsed", file_path=file_path, reason=reason)
+                            
+                            file_changes.append({
+                                'file_path': file_path,
+                                'new_content': args.get('new_content'),
+                                'reason': reason
+                            })
+                        except json.JSONDecodeError as e:
+                            logger.error("fix_parse_error", error=str(e))
             
             if file_changes:
                 logger.info("fixes_complete", fixes_count=len(file_changes))

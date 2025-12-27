@@ -5,10 +5,15 @@ Flow:
 1. Clone repo into temp directory
 2. Apply file changes from AI
 3. Detect stack & resolve Docker image
-4. Create container
+4. Create container (local Docker or AWS Fargate)
 5. Install dependencies
 6. Run tests
 7. Return result with logs
+
+Sandbox modes:
+- AWS Fargate (production): USE_AWS_SANDBOX=true
+- Local Docker (development): Docker available
+- Local fallback: No Docker available
 """
 import logging
 import os
@@ -22,7 +27,17 @@ from typing import Optional
 from services.stack_detector import StackDetectorService, StackConfig
 from services.docker_sandbox import DockerSandboxService, ExecResult, DOCKER_AVAILABLE
 
+# Check if AWS sandbox is available
+try:
+    from services.aws_sandbox import AWSSandboxService, BOTO3_AVAILABLE
+except ImportError:
+    BOTO3_AVAILABLE = False
+    AWSSandboxService = None
+
 logger = logging.getLogger(__name__)
+
+# Environment variable to enable AWS sandbox
+USE_AWS_SANDBOX = os.environ.get('USE_AWS_SANDBOX', 'false').lower() == 'true'
 
 
 @dataclass
@@ -47,20 +62,44 @@ class FileChange:
 
 
 class CodeExecutionService:
-    """Orchestrates the full code validation flow in Docker."""
+    """Orchestrates the full code validation flow.
+    
+    Supports three modes:
+    1. AWS Fargate (production) - Set USE_AWS_SANDBOX=true
+    2. Local Docker (development) - Docker Desktop running
+    3. Local fallback - No Docker, runs commands directly
+    """
     
     def __init__(
         self,
         stack_detector: Optional[StackDetectorService] = None,
         docker_sandbox: Optional[DockerSandboxService] = None,
+        aws_sandbox: Optional["AWSSandboxService"] = None,
     ):
         self.stack_detector = stack_detector or StackDetectorService()
         self.docker_sandbox = docker_sandbox
+        self.aws_sandbox = aws_sandbox
+        self.use_aws = False
         
-        # Lazy init docker sandbox if available
-        if self.docker_sandbox is None and DOCKER_AVAILABLE:
+        # Check which sandbox to use
+        if USE_AWS_SANDBOX and BOTO3_AVAILABLE:
+            # Production: Use AWS Fargate
+            if self.aws_sandbox is None:
+                try:
+                    self.aws_sandbox = AWSSandboxService()
+                    if self.aws_sandbox.is_available():
+                        self.use_aws = True
+                        logger.info("Using AWS Fargate sandbox")
+                    else:
+                        logger.warning("AWS sandbox configured but not available")
+                except Exception as e:
+                    logger.warning(f"AWS sandbox not available: {e}")
+        
+        # Fallback to local Docker
+        if not self.use_aws and self.docker_sandbox is None and DOCKER_AVAILABLE:
             try:
                 self.docker_sandbox = DockerSandboxService()
+                logger.info("Using local Docker sandbox")
             except Exception as e:
                 logger.warning(f"Docker sandbox not available: {e}")
     
@@ -119,8 +158,19 @@ class CodeExecutionService:
                 return result
             result.add_log(f"Detected stack: {stack_config.stack_type}")
             
-            # Step 4: Check Docker availability
-            if self.docker_sandbox is None or not self.docker_sandbox.is_available():
+            # Step 4: Choose execution mode
+            if self.use_aws and self.aws_sandbox:
+                # Production: Use AWS Fargate
+                result.add_log("Using AWS Fargate sandbox")
+                return self._run_in_aws(
+                    temp_dir, file_changes, stack_config, run_tests, run_build, result
+                )
+            elif self.docker_sandbox is not None and self.docker_sandbox.is_available():
+                # Development: Use local Docker
+                result.add_log("Using local Docker sandbox")
+                # Continue to Docker container flow below
+            else:
+                # Fallback: Run locally
                 result.add_log("Docker not available, running locally")
                 return self._run_locally(temp_dir, stack_config, run_tests, run_build, result)
             
@@ -321,4 +371,70 @@ class CodeExecutionService:
             return result
         except Exception as e:
             result.error = str(e)
+            return result
+    
+    def _run_in_aws(
+        self,
+        repo_path: str,
+        file_changes: list[dict],
+        stack_config: StackConfig,
+        run_tests: bool,
+        run_build: bool,
+        result: ExecutionResult,
+    ) -> ExecutionResult:
+        """Run validation in AWS ECS Fargate container."""
+        result.stage = 'aws_fargate'
+        
+        try:
+            # Prepare code files for upload
+            code_files = []
+            for root, dirs, files in os.walk(repo_path):
+                dirs[:] = [d for d in dirs if d != '.git']
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, repo_path)
+                    try:
+                        with open(full_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        code_files.append({'path': rel_path, 'content': content})
+                    except (UnicodeDecodeError, IOError):
+                        # Skip binary files
+                        pass
+            
+            result.add_log(f"Uploading {len(code_files)} files to AWS")
+            
+            # Determine test command
+            test_command = stack_config.test_command if run_tests else "echo 'Skipping tests'"
+            if run_build and stack_config.build_command:
+                test_command = f"{test_command} && {stack_config.build_command}"
+            
+            # Run in Fargate
+            fargate_result = self.aws_sandbox.run_validation(
+                code_files=code_files,
+                stack_type=stack_config.stack_type,
+                install_command=stack_config.install_command,
+                test_command=test_command,
+            )
+            
+            # Map Fargate result to ExecutionResult
+            result.add_log(f"AWS task completed in {fargate_result.duration_seconds:.1f}s")
+            result.add_log(f"Exit code: {fargate_result.exit_code}")
+            result.add_log(f"Output:\n{fargate_result.stdout}")
+            
+            if fargate_result.stderr:
+                result.add_log(f"Errors:\n{fargate_result.stderr}")
+            
+            result.success = fargate_result.success
+            result.exit_code = fargate_result.exit_code
+            
+            if not fargate_result.success:
+                result.error = f"Tests failed with exit code {fargate_result.exit_code}"
+            
+            return result
+            
+        except TimeoutError as e:
+            result.error = str(e)
+            return result
+        except Exception as e:
+            result.error = f"AWS execution failed: {str(e)}"
             return result

@@ -14,6 +14,45 @@ class GitHubService:
         self.github = Github(token)
         logger.info("github_service_initialized")
     
+    def get_available_repos(self):
+        """
+        Get all repositories accessible by the GitHub token.
+        Returns a list of repository info dictionaries.
+        Includes: owned repos, collaborator repos, and organization member repos.
+        """
+        logger.info("fetching_available_repos")
+        
+        try:
+            repos = []
+            seen = set()
+            
+            # Get repos with all affiliations: owner, collaborator, org member
+            for repo in self.github.get_user().get_repos(affiliation='owner,collaborator,organization_member'):
+                if repo.full_name not in seen:
+                    seen.add(repo.full_name)
+                    repos.append({
+                        'full_name': repo.full_name,
+                        'name': repo.name,
+                        'owner': repo.owner.login,
+                        'private': repo.private,
+                        'default_branch': repo.default_branch,
+                        'description': repo.description,
+                        'url': repo.html_url,
+                        'language': repo.language,
+                        'updated_at': repo.updated_at.isoformat() if repo.updated_at else None,
+                        'permissions': {
+                            'admin': repo.permissions.admin if repo.permissions else False,
+                            'push': repo.permissions.push if repo.permissions else False,
+                            'pull': repo.permissions.pull if repo.permissions else False
+                        }
+                    })
+            
+            logger.info("repos_fetched", count=len(repos))
+            return repos
+        except GithubException as e:
+            logger.error("fetch_repos_failed", error=str(e))
+            raise ValueError(f"Failed to fetch repositories: {str(e)}")
+    
     def get_repository(self, repo_full_name):
         if not repo_full_name:
             raise ValueError("Repository full name is required")

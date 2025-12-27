@@ -217,10 +217,135 @@ def handle_webhook():
         save_job(job)
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/test-issue', methods=['POST'])
+def test_issue():
+    """
+    Test endpoint that processes an issue directly without needing a webhook.
+    Accepts raw issue data and runs through the same pipeline as the webhook.
+    
+    Expected JSON payload:
+    {
+        "repo": "owner/repo-name",
+        "issue_number": 123,
+        "issue_title": "Issue title",
+        "issue_body": "Issue description",
+        "comment_body": "@my-tool please fix this"
+    }
+    """
+    config = load_config()
+    github_token = config.get('github_token')
+    openrouter_key = config.get('openrouter_key')
+    
+    if not github_token or not openrouter_key:
+        return jsonify({'error': 'Missing API credentials'}), 500
+    
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'error': 'No JSON data provided'}), 400
+    
+    repo_full_name = data.get('repo')
+    issue_number = data.get('issue_number')
+    issue_title = data.get('issue_title', f'Test Issue #{issue_number}')
+    issue_body = data.get('issue_body', '')
+    comment_body = data.get('comment_body', '@my-tool')
+    
+    if not repo_full_name:
+        return jsonify({'error': 'Missing required field: repo'}), 400
+    
+    if not issue_number:
+        return jsonify({'error': 'Missing required field: issue_number'}), 400
+    
+    logger.info(
+        "test_issue_received",
+        repo=repo_full_name,
+        issue_number=issue_number,
+        issue_title=issue_title
+    )
+    
+    job = {
+        'id': f"{repo_full_name}-{issue_number}-{datetime.now().timestamp()}",
+        'repo': repo_full_name,
+        'issueNumber': issue_number,
+        'issueTitle': issue_title,
+        'status': 'processing',
+        'stage': 'analyzing',
+        'retryCount': 0,
+        'createdAt': datetime.now().isoformat(),
+        'prUrl': None,
+        'error': None,
+        'logs': ['Test job started (via /api/test-issue)'],
+        'validationLogs': []
+    }
+    save_job(job)
+    
+    try:
+        github_service = GitHubService(github_token)
+        ai_service = AIService(openrouter_key)
+        pr_service = PRService(github_service, ai_service)
+        
+        job['stage'] = 'generating'
+        job['logs'].append('AI analyzing issue...')
+        save_job(job)
+        
+        result = pr_service.process_issue(
+            repo_full_name=repo_full_name,
+            issue_number=issue_number,
+            issue_title=issue_title,
+            issue_body=issue_body,
+            comment_body=comment_body
+        )
+        
+        job['status'] = 'completed' if result.get('success') else 'failed'
+        job['prUrl'] = result.get('pr_url')
+        job['error'] = result.get('message') if not result.get('success') else None
+        job['validationLogs'] = result.get('validation_logs', [])
+        job['stage'] = 'completed' if result.get('success') else 'failed'
+        job['logs'].append(f"Result: {'PR created' if result.get('success') else result.get('message', 'Failed')}")
+        save_job(job)
+        
+        return jsonify(result), 200
+        
+    except ValueError as e:
+        job['status'] = 'failed'
+        job['stage'] = 'error'
+        job['error'] = str(e)
+        job['logs'].append(f'Error: {str(e)}')
+        save_job(job)
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        job['status'] = 'failed'
+        job['stage'] = 'error'
+        job['error'] = str(e)
+        job['logs'].append(f'Error: {str(e)}')
+        save_job(job)
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/jobs', methods=['GET'])
 def get_jobs():
     jobs = load_jobs()
     return jsonify(jobs), 200
+
+
+@app.route('/api/repos', methods=['GET'])
+def get_repos():
+    """Get all repositories accessible by the GitHub token."""
+    config = load_config()
+    github_token = config.get('github_token')
+    
+    if not github_token:
+        return jsonify({'error': 'GitHub token not configured'}), 500
+    
+    try:
+        github_service = GitHubService(github_token)
+        repos = github_service.get_available_repos()
+        return jsonify({'repos': repos, 'count': len(repos)}), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error("get_repos_failed", error=str(e))
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/jobs/<job_id>/logs', methods=['GET'])
@@ -259,6 +384,154 @@ def health_check():
         'environment': os.environ.get('FLASK_ENV', 'production'),
         'version': '1.0.0'
     }), 200 if all_healthy else 503
+
+
+@app.route('/api/test-sandbox', methods=['POST'])
+def test_sandbox():
+    """
+    Test endpoint that runs a simple task in AWS sandbox without AI.
+    Useful for testing the full AWS ECS Fargate flow.
+    
+    Expected JSON payload (all optional):
+    {
+        "code": "print('Hello World')",  # Python code to run (defaults to simple test)
+        "stack": "python"  # or "nodejs"
+    }
+    """
+    # Check if AWS sandbox is enabled
+    if not os.environ.get('USE_AWS_SANDBOX'):
+        return jsonify({
+            'error': 'AWS sandbox not enabled. Set USE_AWS_SANDBOX=true in .env'
+        }), 400
+    
+    data = request.get_json() or {}
+    stack = data.get('stack', 'python')
+    
+    # Default test code based on stack
+    if stack == 'python':
+        default_code = '''
+# Simple test script
+import os
+print("=" * 50)
+print("SANDBOX TEST STARTED")
+print("=" * 50)
+
+# Test 1: Print environment
+print("\\n[TEST 1] Environment info:")
+print(f"  Python version: {os.sys.version}")
+print(f"  Working directory: {os.getcwd()}")
+
+# Test 2: Read a file
+print("\\n[TEST 2] Creating and reading a test file:")
+with open("test_file.txt", "w") as f:
+    f.write("Hello from AWS Sandbox!")
+with open("test_file.txt", "r") as f:
+    content = f.read()
+print(f"  File content: {content}")
+
+# Test 3: Simple assertion
+print("\\n[TEST 3] Running assertions:")
+assert 1 + 1 == 2, "Math is broken!"
+print("  ✓ 1 + 1 = 2")
+assert "hello".upper() == "HELLO", "String ops broken!"
+print("  ✓ String operations work")
+
+print("\\n" + "=" * 50)
+print("ALL TESTS PASSED!")
+print("=" * 50)
+'''
+    else:  # nodejs
+        default_code = '''
+console.log("=" .repeat(50));
+console.log("SANDBOX TEST STARTED");
+console.log("=".repeat(50));
+
+// Test 1: Environment
+console.log("\\n[TEST 1] Environment info:");
+console.log("  Node version:", process.version);
+console.log("  Working directory:", process.cwd());
+
+// Test 2: File operations
+const fs = require("fs");
+console.log("\\n[TEST 2] Creating and reading a test file:");
+fs.writeFileSync("test_file.txt", "Hello from AWS Sandbox!");
+const content = fs.readFileSync("test_file.txt", "utf8");
+console.log("  File content:", content);
+
+// Test 3: Assertions
+console.log("\\n[TEST 3] Running assertions:");
+console.assert(1 + 1 === 2, "Math is broken!");
+console.log("  ✓ 1 + 1 = 2");
+
+console.log("\\n" + "=".repeat(50));
+console.log("ALL TESTS PASSED!");
+console.log("=".repeat(50));
+'''
+    
+    code = data.get('code', default_code)
+    
+    # Prepare code files
+    if stack == 'python':
+        code_files = [
+            {'path': 'main.py', 'content': code},
+            {'path': 'requirements.txt', 'content': '# No dependencies needed for test'},
+        ]
+        install_cmd = 'pip install -r requirements.txt 2>/dev/null || true'
+        test_cmd = 'python main.py'
+    else:
+        code_files = [
+            {'path': 'index.js', 'content': code},
+            {'path': 'package.json', 'content': '{"name": "sandbox-test", "version": "1.0.0"}'},
+        ]
+        install_cmd = 'npm install 2>/dev/null || true'
+        test_cmd = 'node index.js'
+    
+    logger.info(
+        "test_sandbox_started",
+        stack=stack,
+        file_count=len(code_files),
+    )
+    
+    try:
+        from services.aws_sandbox import AWSSandboxService
+        
+        sandbox = AWSSandboxService()
+        
+        # Check if sandbox is accessible
+        if not sandbox.is_available():
+            return jsonify({
+                'error': 'AWS sandbox not accessible. Check your AWS credentials and configuration.',
+                'config': {
+                    'region': sandbox.config.region,
+                    'cluster': sandbox.config.ecs_cluster,
+                    'bucket': sandbox.config.s3_bucket,
+                }
+            }), 500
+        
+        # Run the validation
+        result = sandbox.run_validation(
+            code_files=code_files,
+            stack_type=stack,
+            install_command=install_cmd,
+            test_command=test_cmd,
+        )
+        
+        return jsonify({
+            'success': result.success,
+            'exit_code': result.exit_code,
+            'duration_seconds': round(result.duration_seconds, 2),
+            'estimated_cost_usd': result.estimated_cost_usd,
+            'stdout': result.stdout,
+            'stderr': result.stderr,
+            'task_arn': result.task_arn,
+        }), 200 if result.success else 500
+        
+    except Exception as e:
+        logger.error("test_sandbox_failed", error=str(e))
+        return jsonify({
+            'error': str(e),
+            'type': type(e).__name__,
+        }), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)
