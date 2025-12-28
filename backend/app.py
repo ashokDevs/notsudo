@@ -132,9 +132,9 @@ def handle_webhook():
     
     comment_body = comment.get('body', '')
     
-    if '@my-tool' not in comment_body:
-        logger.debug("webhook_ignored", reason="my-tool not mentioned")
-        return jsonify({'message': 'Ignored: @my-tool not mentioned'}), 200
+    if '@notsudo' not in comment_body:
+        logger.debug("webhook_ignored", reason="notsudo not mentioned")
+        return jsonify({'message': 'Ignored: @notsudo not mentioned'}), 200
     
     github_token = config.get('github_token')
     groq_key = config.get('groq_key')
@@ -229,7 +229,7 @@ def test_issue():
         "issue_number": 123,
         "issue_title": "Issue title",
         "issue_body": "Issue description",
-        "comment_body": "@my-tool please fix this"
+        "comment_body": "@notsudo please fix this"
     }
     """
     config = load_config()
@@ -248,7 +248,7 @@ def test_issue():
     issue_number = data.get('issue_number')
     issue_title = data.get('issue_title', f'Test Issue #{issue_number}')
     issue_body = data.get('issue_body', '')
-    comment_body = data.get('comment_body', '@my-tool')
+    comment_body = data.get('comment_body', '@notsudo')
     
     if not repo_full_name:
         return jsonify({'error': 'Missing required field: repo'}), 400

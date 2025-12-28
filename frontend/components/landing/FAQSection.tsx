@@ -10,28 +10,28 @@ interface FAQ {
 
 const faqs: FAQ[] = [
   {
-    question: "How does the AI understand my codebase?",
-    answer: "Our AI analyzes your repository structure, existing code patterns, dependencies, and coding conventions. It uses this context along with the GitHub issue to generate code that fits seamlessly into your project.",
+    question: "How do I use NotSudo to fix an issue?",
+    answer: "Simply comment @notsudo on any GitHub issue in your repository. Our AI will analyze the issue, understand the context of your codebase, and create a pull request with the fix – usually within 5 minutes.",
+  },
+  {
+    question: "What types of issues can NotSudo fix?",
+    answer: "NotSudo handles bug fixes, simple feature additions, refactoring tasks, dependency updates, documentation updates, and configuration changes. For complex architectural changes, it works great as a first draft you can iterate on.",
   },
   {
     question: "Is my code secure?",
     answer: "Absolutely. All code analysis happens in isolated Docker containers. Your code never leaves your infrastructure, and we don't store any repository data. API keys are encrypted and scoped to minimal permissions.",
   },
   {
-    question: "What programming languages are supported?",
-    answer: "We support all major programming languages including Python, JavaScript/TypeScript, Go, Rust, Java, C++, Ruby, and more. The AI adapts to your project's language and framework automatically.",
+    question: "What if the generated PR isn't perfect?",
+    answer: "Just comment on the PR with feedback like you would with any developer. NotSudo will read your comments, understand the issues, and push updated commits. It learns from your feedback to get better over time.",
   },
   {
-    question: "How does Docker sandbox validation work?",
-    answer: "Before creating a PR, all generated code is validated in a Docker container that mirrors your project environment. We run your test suite, linting, and type checking to ensure the code is production-ready.",
+    question: "How fast does it fix issues?",
+    answer: "Most issues are resolved in under 5 minutes. Complex issues that require more analysis might take up to 15 minutes. Either way, it's faster than waiting for the next sprint planning meeting.",
   },
   {
-    question: "Can I customize the AI behavior?",
-    answer: "Yes! You can configure coding style preferences, required reviewers, branch naming conventions, and more through a simple configuration file in your repository.",
-  },
-  {
-    question: "What if the AI generates incorrect code?",
-    answer: "Our multi-step validation process catches most issues before creating a PR. If something slips through, you can provide feedback on the PR, and the AI will learn and iterate to fix the issues.",
+    question: "Can it work with my existing CI/CD pipeline?",
+    answer: "Yes! NotSudo creates standard pull requests that go through your normal review and CI/CD process. It validates code in Docker containers before creating the PR, so your CI checks usually pass on the first try.",
   },
 ];
 

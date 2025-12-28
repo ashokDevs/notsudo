@@ -38,7 +38,7 @@ A cloud-based GitHub automation service that responds to @my-tool mentions in is
 ```
 
 ## How It Works
-1. User comments `@my-tool` on a GitHub issue
+1. User comments `@notsudo` on a GitHub issue
 2. GitHub webhook sends event to Flask backend
 3. Backend fetches issue details and repository code
 4. LLM analyzes issue and determines necessary code changes

@@ -37,42 +37,13 @@ const socialLinks = [
 export function Footer() {
   return (
     <footer className="relative pt-20 pb-8 px-4">
-      {/* Top CTA Section */}
-      <div className="relative z-10 max-w-5xl mx-auto mb-20">
-        <div className="relative glass-card rounded-3xl p-12 text-center overflow-hidden">
-          {/* Gradient Background */}
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-teal-500/10" />
-          <div className="absolute -top-24 -right-24 w-48 h-48 bg-blue-500/20 rounded-full blur-[80px]" />
-          <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-purple-500/20 rounded-full blur-[80px]" />
-          
-          <div className="relative z-10">
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-              Ready to automate your development?
-            </h2>
-            <p className="text-lg text-gray-400 mb-8 max-w-xl mx-auto">
-              Start using AI-powered code automation today. 
-              No credit card required.
-            </p>
-            <a
-              href="/app"
-              className="inline-flex items-center gap-2 px-8 py-4 bg-white text-black font-semibold rounded-xl hover:bg-gray-100 transition-all duration-300 hover:scale-105"
-            >
-              Get Started Free
-              <ArrowRight className="w-5 h-5" />
-            </a>
-          </div>
-        </div>
-      </div>
-
       {/* Footer Navigation */}
       <div className="relative z-10 max-w-7xl mx-auto">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-8 pb-12 border-b border-white/10">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
-                <span className="text-white font-bold text-sm">NS</span>
-              </div>
+              <img src="/logo.png" alt="NotSudo" className="w-8 h-8" />
               <span className="font-bold text-white">NotSudo</span>
             </div>
             <p className="text-sm text-gray-500 mb-4">

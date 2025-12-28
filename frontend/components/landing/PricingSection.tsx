@@ -1,198 +1,159 @@
 "use client";
 
-import { Check, ArrowRight } from "lucide-react";
-
 interface PricingTier {
+  tier: string;
   name: string;
-  description: string;
   price: string;
   priceSubtext?: string;
-  cta: string;
-  ctaVariant: "primary" | "secondary";
-  featured?: boolean;
-  featuresTitle: string;
   features: string[];
-  extras?: {
-    title: string;
-    features: string[];
-  };
+  cta: string;
+  ctaStyle: "outline" | "filled";
+  footer: string;
+  featured?: boolean;
 }
 
 const pricingTiers: PricingTier[] = [
   {
-    name: "Starter",
-    description: "For individual developers",
-    price: "Free",
-    priceSubtext: "Up to 10 issues/month",
-    cta: "Get started",
-    ctaVariant: "secondary",
-    featuresTitle: "WHAT'S INCLUDED:",
+    tier: "Starter",
+    name: "Free",
+    price: "",
     features: [
-      "10 AI-generated PRs per month",
-      "1 repository",
-      "Basic issue analysis",
-      "Community support",
+      "Up to 10 issues resolved /month",
+      "Basic bug fixes & refactoring",
+      "Community Discord support",
+      "Public repos only",
     ],
-    extras: {
-      title: "CORE FEATURES:",
-      features: [
-        "Automatic code generation",
-        "Docker sandbox validation",
-        "GitHub integration",
-      ],
-    },
+    cta: "START FOR FREE",
+    ctaStyle: "outline",
+    footer: "(✓) NO CC REQUIRED",
   },
   {
-    name: "Pro",
-    description: "For growing teams",
-    price: "$49",
-    priceSubtext: "/month per seat",
-    cta: "Start free trial",
-    ctaVariant: "primary",
+    tier: "Pro",
+    name: "$49",
+    price: "/MO",
+    features: [
+      "Unlimited issues resolved",
+      "Feature development & tests",
+      "Private repos supported",
+      "Priority PR reviews",
+      "Slack integration",
+    ],
+    cta: "GET STARTED",
+    ctaStyle: "filled",
+    footer: "($) CANCEL ANYTIME",
     featured: true,
-    featuresTitle: "EVERYTHING IN STARTER, PLUS:",
-    features: [
-      "Unlimited AI-generated PRs",
-      "Unlimited repositories",
-      "Priority processing queue",
-      "Advanced code analysis",
-    ],
-    extras: {
-      title: "TEAM FEATURES:",
-      features: [
-        "Team collaboration tools",
-        "Custom coding standards",
-        "Slack notifications",
-      ],
-    },
   },
   {
-    name: "Enterprise",
-    description: "For large organizations",
-    price: "Custom",
-    priceSubtext: "Contact for pricing",
-    cta: "Contact sales",
-    ctaVariant: "secondary",
-    featuresTitle: "EVERYTHING IN PRO, PLUS:",
-    features: [
-      "Unlimited team members",
-      "Self-hosted deployment",
-      "Custom AI model tuning",
-      "Dedicated support",
-    ],
-    extras: {
-      title: "SECURITY & COMPLIANCE:",
-      features: [
-        "SOC 2 compliance",
-        "SSO/SAML integration",
-        "Audit logs",
-      ],
-    },
+    tier: "Team",
+    name: "Custom",
+    price: "",
+    features: [],
+    cta: "CONTACT US",
+    ctaStyle: "outline",
+    footer: "($) VOLUME DISCOUNTS",
   },
 ];
 
 export function PricingSection() {
   return (
-    <section className="relative py-32 px-4 bg-gradient-to-b from-black via-slate-950 to-black overflow-hidden">
-      {/* Background Glow */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-purple-500/10 rounded-full blur-[150px]" />
-      
-      <div className="relative z-10 max-w-7xl mx-auto">
+    <section className="relative py-24 px-4 bg-black">
+      <div className="max-w-6xl mx-auto">
         {/* Section Header */}
-        <div className="text-center mb-16">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-6">
-            <span className="text-purple-400">💰</span>
-            <span className="text-sm font-medium text-white">Pricing</span>
-          </div>
-          
-          <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4">
-            Pick your plan
+        <div className="text-center mb-12">
+          <span className="inline-block px-3 py-1 text-xs font-mono text-gray-400 border border-gray-700 mb-6">
+            [ PRICING ]
+          </span>
+
+          <h2 className="font-mono text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 tracking-tight">
+            SIMPLE{" "}
+            <span className="inline-block border-2 border-orange-500 px-2 py-0.5">
+              PRICING
+            </span>
           </h2>
-          <p className="text-lg text-gray-400 max-w-2xl mx-auto">
-            Scale your development workflow with confidence.
+
+          <p className="text-gray-400 max-w-lg mx-auto font-mono text-sm">
+            Cheaper than an intern. Works harder than your best engineer.
             <br />
-            Transparent pricing — no setup fees or hidden costs.
+            No benefits, no drama, just code.
           </p>
         </div>
 
         {/* Pricing Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-0 border border-gray-700">
           {pricingTiers.map((tier, index) => (
             <div
               key={index}
-              className={`relative rounded-3xl border p-8 transition-all ${
+              className={`relative p-8 flex flex-col ${
                 tier.featured
-                  ? "bg-gradient-to-b from-purple-900/20 to-transparent border-purple-500/30"
-                  : "bg-gradient-to-b from-white/[0.03] to-transparent border-white/10 hover:border-white/20"
-              }`}
+                  ? "bg-white border-x border-gray-700"
+                  : "bg-black"
+              } ${index !== 0 ? "md:border-l border-t md:border-t-0 border-gray-700" : ""}`}
             >
-              {/* Featured Badge */}
-              {tier.featured && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-purple-500 text-white text-xs font-medium">
-                  Most Popular
-                </div>
-              )}
-              
-              {/* Plan Name */}
-              <h3 className="text-2xl font-bold text-white mb-2">
-                {tier.name}
-              </h3>
-              <p className="text-gray-400 text-sm mb-6">
-                {tier.description}
-              </p>
-              
+              {/* Tier Label */}
+              <div className="text-center mb-2">
+                <span
+                  className={`text-sm ${
+                    tier.featured ? "text-orange-500" : "text-gray-500"
+                  }`}
+                >
+                  {tier.tier}
+                </span>
+              </div>
+
               {/* Price */}
-              <div className="mb-6">
-                <span className="text-4xl font-bold text-white">{tier.price}</span>
-                {tier.priceSubtext && (
-                  <span className="text-gray-400 text-sm ml-2">{tier.priceSubtext}</span>
+              <div className="text-center mb-2">
+                <span className={`text-3xl md:text-4xl font-bold font-serif ${tier.featured ? 'text-black' : 'text-white'}`}>
+                  {tier.name}
+                </span>
+                {tier.price && (
+                  <span className="text-sm text-gray-500">{tier.price}</span>
                 )}
               </div>
-              
-              {/* CTA Button */}
-              <a
-                href="#"
-                className={`w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full font-medium text-sm transition-colors mb-8 ${
-                  tier.ctaVariant === "primary"
-                    ? "bg-white text-black hover:bg-gray-100"
-                    : "bg-white/10 text-white border border-white/20 hover:bg-white/20"
-                }`}
-              >
-                {tier.cta}
-                <ArrowRight className="w-4 h-4" />
-              </a>
-              
+
               {/* Features */}
-              <div className="space-y-6">
-                <div>
-                  <p className="text-purple-400 text-xs font-medium mb-3 tracking-wider">
-                    {tier.featuresTitle}
-                  </p>
+              <div className="flex-1 mb-8">
+                {tier.features.length > 0 ? (
                   <ul className="space-y-3">
                     {tier.features.map((feature, featureIndex) => (
-                      <li key={featureIndex} className="flex items-start gap-3">
-                        <Check className="w-4 h-4 text-white mt-0.5 shrink-0" />
-                        <span className="text-gray-300 text-sm">{feature}</span>
+                      <li
+                        key={featureIndex}
+                        className={`flex items-start gap-2 text-sm ${tier.featured ? 'text-gray-700' : 'text-gray-300'}`}
+                      >
+                        <span className="text-orange-500 mt-0.5">✓</span>
+                        <span>{feature}</span>
                       </li>
                     ))}
                   </ul>
-                </div>
-                
-                {tier.extras && (
-                  <div>
-                    <p className="text-gray-500 text-xs font-medium mb-3 tracking-wider">
-                      {tier.extras.title}
-                    </p>
-                    <ul className="space-y-3">
-                      {tier.extras.features.map((feature, featureIndex) => (
-                        <li key={featureIndex} className="flex items-start gap-3">
-                          <Check className="w-4 h-4 text-white/60 mt-0.5 shrink-0" />
-                          <span className="text-gray-400 text-sm">{feature}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                ) : (
+                  <p className="text-center text-sm text-gray-500">
+                    Contact us for custom solution
+                    <br />
+                    with special pricing.
+                  </p>
                 )}
+              </div>
+
+              {/* CTA Button */}
+              <div className="text-center">
+                <a
+                  href="#"
+                  className={`inline-block px-8 py-3 text-xs font-mono tracking-wider transition-all duration-200 ${
+                    tier.ctaStyle === "filled"
+                      ? "bg-black text-white hover:bg-gray-800"
+                      : tier.featured
+                        ? "bg-transparent text-black border border-black hover:bg-black hover:text-white"
+                        : "bg-transparent text-white border border-white hover:bg-white hover:text-black"
+                  }`}
+                >
+                  {tier.cta}
+                </a>
+              </div>
+
+              {/* Footer */}
+              <div className="text-center mt-4">
+                <span className="text-xs font-mono text-gray-500">
+                  {tier.footer}
+                </span>
               </div>
             </div>
           ))}

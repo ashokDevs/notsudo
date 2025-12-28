@@ -1,15 +1,15 @@
 "use client";
 
-import { ArrowRight, Bot, Code2, GitPullRequest, Shield, Zap, Layers } from "lucide-react";
+import { ArrowRight, Bot, Code2, GitPullRequest, Shield, Zap, Layers, Coffee } from "lucide-react";
 
 // Floating capability pills - these will animate across the right side
 const capabilityPills = [
-  ["Fix bugs automatically", "Generate unit tests"],
-  ["Create documentation", "Refactor legacy code"],
-  ["Add new features", "Update dependencies"],
-  ["Code review assistance", "Security patches"],
-  ["API improvements", "Performance optimizations"],
-  ["Database migrations", "Config updates"],
+  ["Fix bugs in minutes", "Resolve GitHub issues"],
+  ["Generate pull requests", "Write unit tests"],
+  ["Refactor messy code", "Update dependencies"],
+  ["Close stale issues", "Apply security patches"],
+  ["Fix CI failures", "Add missing types"],
+  ["Resolve merge conflicts", "Update configs"],
 ];
 
 const featureCards = [
@@ -27,6 +27,11 @@ const featureCards = [
     icon: Layers,
     title: "100+ languages supported",
     description: "Works with Python, Node.js, Go, Rust, Java, and all major programming languages.",
+  },
+  {
+    icon: Coffee,
+    title: "No PTO, No Promotions",
+    description: "Doesn't take leaves, ask for raises, or need coffee breaks. Just ships code 24/7.",
   },
 ];
 
@@ -48,12 +53,12 @@ export function FeaturesGrid() {
             {/* Left Side - Text Content */}
             <div className="relative z-10 p-8 lg:p-12 flex flex-col justify-center">
               <h2 className="text-4xl lg:text-5xl font-bold text-white mb-4 leading-tight">
-                1 AI agent
+                Fix issues,
                 <br />
-                for any task
+                ship PRs faster
               </h2>
               <p className="text-lg text-gray-400 mb-8">
-                Automate your entire GitHub workflow with a single integration.
+                Tag @notsudo on any GitHub issue and get a working PR in minutes.
               </p>
               
               {/* CTA Button */}
@@ -115,7 +120,7 @@ export function FeaturesGrid() {
         </div>
 
         {/* Feature Cards Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {featureCards.map((feature, index) => {
             const Icon = feature.icon;
             

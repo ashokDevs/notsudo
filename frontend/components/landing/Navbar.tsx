@@ -5,9 +5,8 @@ import { Menu, X, Github, ArrowRight } from "lucide-react";
 
 const navLinks = [
   { name: "Features", href: "#features" },
-  { name: "Use Cases", href: "#use-cases" },
+  { name: "Pricing", href: "#pricing" },
   { name: "FAQ", href: "#faq" },
-  { name: "Docs", href: "#docs" },
 ];
 
 export function Navbar() {
@@ -35,9 +34,7 @@ export function Navbar() {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <a href="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
-                <span className="text-white font-bold text-sm">NS</span>
-              </div>
+              <img src="/logo.png" alt="NotSudo" className="w-8 h-8" />
               <span className="font-bold text-white text-lg">NotSudo</span>
             </a>
 
@@ -65,10 +62,10 @@ export function Navbar() {
                 <Github className="w-5 h-5" />
               </a>
               <a
-                href="/app"
+                href="/login"
                 className="inline-flex items-center gap-2 px-4 py-2 bg-white text-black text-sm font-medium rounded-lg hover:bg-gray-100 transition-colors"
               >
-                Dashboard
+                Get Started
                 <ArrowRight className="w-4 h-4" />
               </a>
             </div>
@@ -109,10 +106,10 @@ export function Navbar() {
             </a>
           ))}
           <a
-            href="/app"
+            href="/login"
             className="mt-4 inline-flex items-center gap-2 px-8 py-4 bg-white text-black font-semibold rounded-xl"
           >
-            Dashboard
+            Get Started
             <ArrowRight className="w-5 h-5" />
           </a>
         </div>

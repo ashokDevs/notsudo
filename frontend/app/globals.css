@@ -243,3 +243,47 @@
   animation: fadeInUp 0.8s ease-out 0.3s forwards;
   opacity: 0;
 }
+
+/* Terminal Panel Styles */
+.terminal-panel {
+  background: #0a0a0a;
+  border: 1px solid #1a1a1a;
+  overflow: hidden;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #0f0f0f;
+  border-bottom: 1px solid #1a1a1a;
+}
+
+.terminal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.terminal-title {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: #666;
+  letter-spacing: 0.5px;
+}
+
+.terminal-body {
+  padding: 12px;
+  min-height: 150px;
+}
+
+/* Blinking cursor animation */
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.cursor-blink {
+  animation: blink 1s infinite;
+}

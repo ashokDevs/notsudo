@@ -61,7 +61,7 @@ class TestAIServiceUnit:
             result = service.analyze_issue_and_plan_changes(
                 issue_title='Test issue',
                 issue_body='Fix the bug',
-                comment_body='@my-tool please fix',
+                comment_body='@notsudo please fix',
                 codebase_files=[{'path': 'main.py', 'content': 'old code'}]
             )
             
@@ -116,7 +116,7 @@ class TestAIServiceIntegration:
         result = service.analyze_issue_and_plan_changes(
             issue_title='Add hello world',
             issue_body='Please add a simple hello world function',
-            comment_body='@my-tool add a hello() function that prints hello world',
+            comment_body='@notsudo add a hello() function that prints hello world',
             codebase_files=[{
                 'path': 'main.py',
                 'content': '# Empty file\n'

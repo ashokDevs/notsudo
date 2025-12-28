@@ -1,143 +1,124 @@
 "use client";
 
-import { Github, ArrowRight } from "lucide-react";
+import { useState, useCallback, useRef, useEffect } from "react";
+
+// Grid configuration
+const GRID_COLS = 20;
+const GRID_ROWS = 12;
+
+interface CellState {
+  opacity: number;
+}
 
 export function HeroSection() {
-  return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 py-20 overflow-hidden">
-      {/* Background Effects */}
-      <div className="absolute inset-0 animated-gradient" />
-      
-      {/* Gradient Orbs */}
-      <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-blue-500/20 rounded-full blur-[120px] animate-pulse-glow" />
-      <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-purple-500/20 rounded-full blur-[100px] animate-pulse-glow" style={{ animationDelay: "1s" }} />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-teal-500/10 rounded-full blur-[150px]" />
+  const [cellStates, setCellStates] = useState<Record<number, CellState>>({});
+  const fadeTimeouts = useRef<Record<number, NodeJS.Timeout>>({});
 
-      {/* Planet Horizon Arc - Gladia Style */}
-      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[200vw] pointer-events-none">
-        {/* Outer Glow Layer */}
+  const handleMouseEnter = useCallback((index: number) => {
+    // Clear any existing timeout for this cell
+    if (fadeTimeouts.current[index]) {
+      clearTimeout(fadeTimeouts.current[index]);
+    }
+    
+    // Set cell to full opacity
+    setCellStates(prev => ({
+      ...prev,
+      [index]: { opacity: 1 }
+    }));
+  }, []);
+
+  const handleMouseLeave = useCallback((index: number) => {
+    // Start fade out animation
+    const fadeSteps = [0.8, 0.6, 0.4, 0.2, 0];
+    let stepIndex = 0;
+    
+    const fadeStep = () => {
+      setCellStates(prev => ({
+        ...prev,
+        [index]: { opacity: fadeSteps[stepIndex] }
+      }));
+      
+      stepIndex++;
+      if (stepIndex < fadeSteps.length) {
+        fadeTimeouts.current[index] = setTimeout(fadeStep, 150);
+      } else {
+        // Remove from state when fully faded
+        setCellStates(prev => {
+          const newState = { ...prev };
+          delete newState[index];
+          return newState;
+        });
+      }
+    };
+    
+    fadeTimeouts.current[index] = setTimeout(fadeStep, 100);
+  }, []);
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(fadeTimeouts.current).forEach(timeout => clearTimeout(timeout));
+    };
+  }, []);
+
+  const getCellStyle = (index: number) => {
+    const state = cellStates[index];
+    if (!state) return {};
+    
+    return {
+      backgroundColor: `rgba(249, 115, 22, ${state.opacity * 0.5})`,
+    };
+  };
+
+  return (
+    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 bg-black overflow-hidden">
+      {/* Grid Background */}
+      <div className="absolute inset-0 z-0">
         <div 
-          className="absolute bottom-[-800px] left-1/2 -translate-x-1/2 w-[2000px] h-[1000px] rounded-[50%]"
+          className="w-full h-full grid"
           style={{
-            background: `radial-gradient(ellipse at center, 
-              transparent 0%,
-              transparent 60%,
-              rgba(59, 130, 246, 0.3) 70%,
-              rgba(139, 92, 246, 0.4) 80%,
-              rgba(20, 184, 166, 0.2) 90%,
-              transparent 100%
-            )`,
-            filter: 'blur(40px)',
+            gridTemplateColumns: `repeat(${GRID_COLS}, 1fr)`,
+            gridTemplateRows: `repeat(${GRID_ROWS}, 1fr)`,
           }}
-        />
-        
-        {/* Middle Glow Layer */}
-        <div 
-          className="absolute bottom-[-800px] left-1/2 -translate-x-1/2 w-[2000px] h-[1000px] rounded-[50%]"
-          style={{
-            background: `radial-gradient(ellipse at center, 
-              transparent 0%,
-              transparent 65%,
-              rgba(139, 92, 246, 0.5) 75%,
-              rgba(59, 130, 246, 0.3) 85%,
-              transparent 95%
-            )`,
-            filter: 'blur(20px)',
-          }}
-        />
-        
-        {/* Sharp Edge Glow */}
-        <div 
-          className="absolute bottom-[-800px] left-1/2 -translate-x-1/2 w-[2000px] h-[1000px] rounded-[50%]"
-          style={{
-            boxShadow: `
-              inset 0 150px 100px -50px rgba(139, 92, 246, 0.4),
-              inset 0 100px 60px -30px rgba(59, 130, 246, 0.3),
-              0 -50px 100px rgba(139, 92, 246, 0.3),
-              0 -30px 60px rgba(59, 130, 246, 0.4)
-            `,
-          }}
-        />
-        
-        {/* Black Planet/Arc Body */}
-        <div 
-          className="absolute bottom-[-800px] left-1/2 -translate-x-1/2 w-[2000px] h-[1000px] rounded-[50%]"
-          style={{
-            background: 'radial-gradient(ellipse at center top, #0a0a12 0%, #000000 50%)',
-            boxShadow: `
-              0 -2px 20px rgba(139, 92, 246, 0.6),
-              0 -4px 40px rgba(59, 130, 246, 0.4),
-              0 -8px 80px rgba(139, 92, 246, 0.3)
-            `,
-          }}
-        />
+        >
+          {Array.from({ length: GRID_COLS * GRID_ROWS }).map((_, index) => (
+            <div
+              key={index}
+              className="border border-white/10 transition-colors duration-300"
+              style={getCellStyle(index)}
+              onMouseEnter={() => handleMouseEnter(index)}
+              onMouseLeave={() => handleMouseLeave(index)}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Content */}
-      <div className="relative z-10 text-center max-w-5xl mx-auto">
-        {/* Badge */}
-        <div className="fade-in-up mb-8">
-          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass text-sm text-gray-300 border border-white/10">
-            <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-            Now with Docker Sandbox Validation
-          </span>
-        </div>
-
+      <div className="relative z-10 text-center max-w-5xl mx-auto pointer-events-none">
         {/* Main Headline */}
-        <h1 className="fade-in-up-delay-1 text-5xl md:text-7xl lg:text-8xl font-bold text-white mb-6 leading-tight tracking-tight">
-          AI-Powered Code
+        <h1 className="fade-in-up-delay-1 font-mono text-5xl md:text-7xl lg:text-8xl font-bold text-white mb-8 leading-tight tracking-tighter uppercase">
+          Your Junior Dev
           <br />
-          <span className="gradient-text">Automation</span> for GitHub
+          <span className="inline-block border-2 border-orange-500 px-4 py-2 mt-4">
+            That Never Sleeps
+          </span>
         </h1>
 
         {/* Subheadline */}
-        <p className="fade-in-up-delay-2 text-lg md:text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-          Transform GitHub issues into production-ready pull requests. 
-          Let AI analyze, generate, validate, and deploy code changes automatically.
+        <p className="fade-in-up-delay-2 text-lg md:text-xl lg:text-2xl text-gray-400 max-w-2xl mx-auto mb-12 font-mono">
+          An AI coding agent that works 24/7 on your GitHub issues.
+          <br />
+          From bug fixes to features – done in minutes, not days.
         </p>
 
-        {/* CTA Buttons */}
-        <div className="fade-in-up-delay-3 flex flex-col sm:flex-row gap-4 justify-center items-center">
+        {/* CTA Button */}
+        <div className="fade-in-up-delay-3 flex justify-center items-center mb-16 pointer-events-auto">
           <a
-            href="/app"
-            className="group relative inline-flex items-center gap-2 px-8 py-4 bg-white text-black font-semibold rounded-xl hover:bg-gray-100 transition-all duration-300 hover:scale-105"
+            href="/login"
+            className="group inline-flex items-center gap-2 px-8 py-4 bg-white text-black font-mono text-base font-medium hover:bg-gray-100 transition-all duration-300 border border-white"
           >
-            Get Started Free
-            <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            START FOR FREE
           </a>
-          
-          <a
-            href="https://github.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group inline-flex items-center gap-2 px-8 py-4 glass-card text-white font-semibold rounded-xl hover:bg-white/10 transition-all duration-300 gradient-border"
-          >
-            <Github className="w-5 h-5" />
-            View on GitHub
-          </a>
-        </div>
-
-        {/* Stats */}
-        <div className="fade-in-up-delay-3 mt-16 grid grid-cols-3 gap-8 max-w-xl mx-auto">
-          <div className="text-center">
-            <div className="text-3xl md:text-4xl font-bold text-white mb-1">99%</div>
-            <div className="text-sm text-gray-500">Success Rate</div>
-          </div>
-          <div className="text-center">
-            <div className="text-3xl md:text-4xl font-bold text-white mb-1">&lt;5m</div>
-            <div className="text-sm text-gray-500">Avg Resolution</div>
-          </div>
-          <div className="text-center">
-            <div className="text-3xl md:text-4xl font-bold text-white mb-1">100+</div>
-            <div className="text-sm text-gray-500">Languages</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Scroll Indicator */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce">
-        <div className="w-6 h-10 rounded-full border-2 border-white/30 flex items-start justify-center p-2">
-          <div className="w-1.5 h-3 bg-white/50 rounded-full animate-pulse" />
         </div>
       </div>
     </section>

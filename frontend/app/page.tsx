@@ -1,10 +1,9 @@
 import { Navbar } from "@/components/landing/Navbar";
 import { HeroSection } from "@/components/landing/HeroSection";
-import { FeaturesGrid } from "@/components/landing/FeaturesGrid";
-import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
+import { HowItWorksSection } from "@/components/landing/HowItWorksSection";
 import { PricingSection } from "@/components/landing/PricingSection";
 import { UseCasesSection } from "@/components/landing/UseCasesSection";
-import { FAQSection } from "@/components/landing/FAQSection";
+import { GetStartedSection } from "@/components/landing/GetStartedSection";
 import { Footer } from "@/components/landing/Footer";
 
 export default function Home() {
@@ -13,21 +12,20 @@ export default function Home() {
       <Navbar />
       <HeroSection />
       <div id="features">
-        <FeaturesGrid />
+        <UseCasesSection />
       </div>
-      <div id="testimonials">
-        <TestimonialsSection />
+      <div id="how-it-works">
+        <HowItWorksSection />
       </div>
       <div id="pricing">
         <PricingSection />
       </div>
-      <div id="use-cases">
-        <UseCasesSection />
-      </div>
-      <div id="faq">
-        <FAQSection />
+      <div id="get-started">
+        <GetStartedSection />
       </div>
       <Footer />
     </main>
   );
 }
+
+

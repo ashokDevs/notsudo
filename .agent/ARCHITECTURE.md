@@ -2,7 +2,7 @@
 
 ## Overview
 
-A GitHub automation tool that creates pull requests in response to issue comments. When someone comments `@my-tool` on an issue, an AI agent analyzes the codebase, generates fixes, **validates them in a Docker sandbox**, and creates a PR.
+A GitHub automation tool that creates pull requests in response to issue comments. When someone comments `@notsudo` on an issue, an AI agent analyzes the codebase, generates fixes, **validates them in a Docker sandbox**, and creates a PR.
 
 ---
 
