@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/dashboard/Sidebar";
+import { JobsTable } from "@/components/dashboard/jobs/JobsTable";
 import { OnboardingModal } from "@/components/dashboard/OnboardingModal";
 import { StatsCard } from "@/components/dashboard/StatsCard";
 import { JobsTable } from "@/components/dashboard/JobsTable";
@@ -180,6 +181,8 @@ export default function Dashboard() {
           </div>
         </header>
 
+        <div className="p-8">
+          <JobsTable />
         <div className="p-8 space-y-8">
           {/* Stats Grid */}
           <section>
