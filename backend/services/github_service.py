@@ -243,3 +243,30 @@ class GitHubService:
         except GithubException as e:
             logger.error("file_update_failed", path=file_path, error=str(e))
             return False
+
+    def get_issues(self, repo_full_name, state='open'):
+        """Get issues for a repository."""
+        logger.info("fetching_issues", repo=repo_full_name, state=state)
+        try:
+            repo = self.github.get_repo(repo_full_name)
+            issues = []
+            for issue in repo.get_issues(state=state):
+                issues.append({
+                    'number': issue.number,
+                    'title': issue.title,
+                    'body': issue.body,
+                    'state': issue.state,
+                    'html_url': issue.html_url,
+                    'created_at': issue.created_at.isoformat(),
+                    'updated_at': issue.updated_at.isoformat(),
+                    'user': {
+                        'login': issue.user.login,
+                        'avatar_url': issue.user.avatar_url
+                    },
+                    'labels': [{'name': l.name, 'color': l.color} for l in issue.labels]
+                })
+            logger.info("issues_fetched", count=len(issues))
+            return issues
+        except Exception as e:
+            logger.error("fetch_issues_failed", repo=repo_full_name, error=str(e))
+            raise ValueError(f"Failed to fetch issues: {str(e)}")

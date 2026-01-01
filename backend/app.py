@@ -348,6 +348,26 @@ def get_repos():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/repos/<path:repo_full_name>/issues', methods=['GET'])
+def get_repo_issues(repo_full_name):
+    """Get issues for a specific repository."""
+    config = load_config()
+    github_token = config.get('github_token')
+
+    if not github_token:
+        return jsonify({'error': 'GitHub token not configured'}), 500
+
+    try:
+        github_service = GitHubService(github_token)
+        issues = github_service.get_issues(repo_full_name)
+        return jsonify({'issues': issues, 'count': len(issues)}), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error("get_repo_issues_failed", error=str(e))
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/jobs/<job_id>/logs', methods=['GET'])
 def get_job_logs(job_id):
     """Get detailed logs for a specific job."""

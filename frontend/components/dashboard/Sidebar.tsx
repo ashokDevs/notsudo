@@ -1,10 +1,11 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Briefcase, Settings, User, Coins } from "lucide-react";
+import { Briefcase, Settings, User, Coins, GitBranch } from "lucide-react";
 
 const navItems = [
   { name: "Jobs", href: "/dashboard", icon: Briefcase },
+  { name: "Repositories", href: "/dashboard/repos", icon: GitBranch },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
