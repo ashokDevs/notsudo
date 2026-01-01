@@ -154,20 +154,41 @@ class GitHubService:
             logger.warning("file_fetch_failed", path=file_path, error=str(e))
             return None
     
-    def get_directory_structure(self, repo, path='', ref='main'):
+    def get_directory_structure(self, repo, path='', ref='main', max_depth=5, skip_patterns=None):
+        if skip_patterns is None:
+            skip_patterns = ['node_modules', 'vendor', '.git', 'dist', 'build', '__pycache__', '.idea', '.vscode']
+
+        return self._get_directory_structure_recursive(repo, path, ref, max_depth, skip_patterns, 0)
+
+    def _get_directory_structure_recursive(self, repo, path, ref, max_depth, skip_patterns, current_depth):
         contents = []
+
+        if current_depth > max_depth:
+            return contents
+
         try:
             items = repo.get_contents(path, ref=ref)
             for item in items:
+                # Skip if matches pattern
+                if any(pattern in item.path.split('/') for pattern in skip_patterns):
+                    continue
+
                 if item.type == 'dir':
                     contents.append({'path': item.path, 'type': 'directory'})
-                    contents.extend(self.get_directory_structure(repo, item.path, ref))
+                    contents.extend(self._get_directory_structure_recursive(
+                        repo, item.path, ref, max_depth, skip_patterns, current_depth + 1
+                    ))
                 else:
                     contents.append({'path': item.path, 'type': 'file', 'size': item.size})
+
+            if len(contents) > 1000 and current_depth == 0:
+                logger.warning("large_repository_detected", file_count=len(contents))
+
         except UnknownObjectException:
             pass
         except GithubException as e:
             logger.warning("directory_fetch_failed", path=path, error=str(e))
+
         return contents
     
     def get_relevant_files(self, repo, max_files=20):
