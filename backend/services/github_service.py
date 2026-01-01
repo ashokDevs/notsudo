@@ -101,6 +101,49 @@ class GitHubService:
                 raise
             except Exception:
                 raise
+    
+    def verify_token_scopes(self):
+        """
+        Verify if the token has the required 'repo' scope for private repositories.
+        """
+        try:
+            # Access user to trigger request and populate scopes
+            user = self.github.get_user()
+            # We access a property to ensure the request is made
+            _ = user.login
+
+            scopes = self.github.oauth_scopes
+            logger.info("token_scopes_verified", scopes=scopes)
+
+            # Scopes can be None if not OAuth/PAT or if not provided in headers
+            if scopes is None:
+                return {
+                    'valid': True,
+                    'scopes': [],
+                    'has_repo_scope': False,
+                    'warning': 'No scopes detected.'
+                }
+
+            has_repo_scope = 'repo' in scopes
+
+            return {
+                'valid': True,
+                'scopes': scopes,
+                'has_repo_scope': has_repo_scope,
+                'warning': None if has_repo_scope else 'Missing "repo" scope. Private repositories will not be accessible.'
+            }
+        except GithubException as e:
+            logger.error("token_verification_failed", error=str(e))
+            return {
+                'valid': False,
+                'error': str(e)
+            }
+        except Exception as e:
+            logger.error("token_verification_error", error=str(e))
+            return {
+                'valid': False,
+                'error': str(e)
+            }
 
     def get_available_repos(self):
         """
@@ -215,8 +258,18 @@ class GitHubService:
             logger.warning("file_fetch_failed", path=file_path, error=str(e))
             return None
     
-    def get_directory_structure(self, repo, path='', ref='main'):
+    def get_directory_structure(self, repo, path='', ref='main', max_depth=5, skip_patterns=None):
+        if skip_patterns is None:
+            skip_patterns = ['node_modules', 'vendor', '.git', 'dist', 'build', '__pycache__', '.idea', '.vscode']
+
+        return self._get_directory_structure_recursive(repo, path, ref, max_depth, skip_patterns, 0)
+
+    def _get_directory_structure_recursive(self, repo, path, ref, max_depth, skip_patterns, current_depth):
         contents = []
+
+        if current_depth > max_depth:
+            return contents
+
         try:
             # Recursion makes _execute_with_retry tricky if we wrap the whole method.
             # Instead, wrap the API call.
@@ -226,15 +279,26 @@ class GitHubService:
             items = self._execute_with_retry(_get_items)
 
             for item in items:
+                # Skip if matches pattern
+                if any(pattern in item.path.split('/') for pattern in skip_patterns):
+                    continue
+
                 if item.type == 'dir':
                     contents.append({'path': item.path, 'type': 'directory'})
-                    contents.extend(self.get_directory_structure(repo, item.path, ref))
+                    contents.extend(self._get_directory_structure_recursive(
+                        repo, item.path, ref, max_depth, skip_patterns, current_depth + 1
+                    ))
                 else:
                     contents.append({'path': item.path, 'type': 'file', 'size': item.size})
+
+            if len(contents) > 1000 and current_depth == 0:
+                logger.warning("large_repository_detected", file_count=len(contents))
+
         except UnknownObjectException:
             pass
         except GithubException as e:
             logger.warning("directory_fetch_failed", path=path, error=str(e))
+
         return contents
     
     def get_relevant_files(self, repo, max_files=20):
@@ -368,3 +432,30 @@ class GitHubService:
         except GithubException as e:
             logger.error("file_update_failed", path=file_path, error=str(e))
             return False
+
+    def get_issues(self, repo_full_name, state='open'):
+        """Get issues for a repository."""
+        logger.info("fetching_issues", repo=repo_full_name, state=state)
+        try:
+            repo = self.github.get_repo(repo_full_name)
+            issues = []
+            for issue in repo.get_issues(state=state):
+                issues.append({
+                    'number': issue.number,
+                    'title': issue.title,
+                    'body': issue.body,
+                    'state': issue.state,
+                    'html_url': issue.html_url,
+                    'created_at': issue.created_at.isoformat(),
+                    'updated_at': issue.updated_at.isoformat(),
+                    'user': {
+                        'login': issue.user.login,
+                        'avatar_url': issue.user.avatar_url
+                    },
+                    'labels': [{'name': l.name, 'color': l.color} for l in issue.labels]
+                })
+            logger.info("issues_fetched", count=len(issues))
+            return issues
+        except Exception as e:
+            logger.error("fetch_issues_failed", repo=repo_full_name, error=str(e))
+            raise ValueError(f"Failed to fetch issues: {str(e)}")
