@@ -1,11 +1,25 @@
 import base64
-
+import time
 from github import Github
 from github.GithubException import GithubException, UnknownObjectException
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+class RateLimitExceeded(Exception):
+    pass
+
+def is_rate_limit_error(exception):
+    if isinstance(exception, GithubException) and exception.status == 403:
+        # Check headers if available
+        if exception.headers:
+            remaining = exception.headers.get('X-RateLimit-Remaining')
+            if remaining is not None and int(remaining) == 0:
+                return True
+        # Also check message just in case
+        if "rate limit" in str(exception.data.get('message', '')).lower():
+            return True
+    return False
 
 class GitHubService:
     def __init__(self, token):
@@ -13,6 +27,80 @@ class GitHubService:
             raise ValueError("GitHub token is required")
         self.github = Github(token)
         logger.info("github_service_initialized")
+
+        # Check rate limit on init
+        self._log_rate_limit()
+
+    def _log_rate_limit(self):
+        try:
+            rate_limit = self.github.get_rate_limit()
+            core = rate_limit.core
+            logger.info(
+                "github_rate_limit",
+                remaining=core.remaining,
+                limit=core.limit,
+                reset=core.reset.isoformat()
+            )
+        except Exception as e:
+            logger.warning("failed_to_check_rate_limit", error=str(e))
+
+    def _wait_for_rate_limit_reset(self, exception, max_wait_time=60):
+        """
+        Calculates wait time based on X-RateLimit-Reset header or defaults to 60 seconds.
+        Returns the wait time if it's within max_wait_time, otherwise raises the exception.
+        """
+        wait_time = 60
+        if isinstance(exception, GithubException) and exception.headers:
+            reset_timestamp = exception.headers.get('X-RateLimit-Reset')
+            if reset_timestamp:
+                try:
+                    reset_time = int(reset_timestamp)
+                    current_time = int(time.time())
+                    wait_time = max(1, reset_time - current_time)
+                except (ValueError, TypeError):
+                    pass
+
+        if wait_time > max_wait_time:
+            logger.error(
+                "rate_limit_wait_too_long",
+                wait_time=wait_time,
+                max_wait_time=max_wait_time,
+                reset_header=exception.headers.get('X-RateLimit-Reset') if isinstance(exception, GithubException) else None
+            )
+            raise exception
+
+        logger.warning(
+            "rate_limit_exceeded_waiting",
+            wait_time_seconds=wait_time,
+            reset_header=exception.headers.get('X-RateLimit-Reset') if isinstance(exception, GithubException) else None
+        )
+        return wait_time
+
+    def _execute_with_retry(self, func, *args, **kwargs):
+        max_retries = 3
+        # Allow max wait time of 60 seconds per retry
+        max_wait_time = 60
+
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except GithubException as e:
+                if is_rate_limit_error(e):
+                    # This raises if wait time is too long
+                    wait_time = self._wait_for_rate_limit_reset(e, max_wait_time=max_wait_time)
+                    # Add a small buffer to be safe
+                    wait_time += 1
+
+                    if attempt < max_retries - 1:
+                        logger.warning("rate_limited_sleeping", wait_time=wait_time, attempt=attempt+1)
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error("rate_limit_retries_exhausted")
+                        raise
+                raise
+            except Exception:
+                raise
     
     def verify_token_scopes(self):
         """
@@ -65,7 +153,7 @@ class GitHubService:
         """
         logger.info("fetching_available_repos")
         
-        try:
+        def _fetch():
             repos = []
             seen = set()
             
@@ -91,7 +179,11 @@ class GitHubService:
                     })
             
             logger.info("repos_fetched", count=len(repos))
+            self._log_rate_limit()
             return repos
+
+        try:
+            return self._execute_with_retry(_fetch)
         except GithubException as e:
             logger.error("fetch_repos_failed", error=str(e))
             raise ValueError(f"Failed to fetch repositories: {str(e)}")
@@ -102,8 +194,11 @@ class GitHubService:
         
         logger.info("fetching_repository", repo=repo_full_name)
         
+        def _get_repo():
+            return self.github.get_repo(repo_full_name)
+
         try:
-            repo = self.github.get_repo(repo_full_name)
+            repo = self._execute_with_retry(_get_repo)
             logger.info("repository_fetched", repo=repo_full_name, default_branch=repo.default_branch)
             return repo
         except UnknownObjectException as e:
@@ -128,6 +223,12 @@ class GitHubService:
                     f"Error: {str(e)}"
                 )
             elif e.status == 403:
+                # If it was a rate limit error, it would have been handled by _execute_with_retry if it could be retried.
+                # If we are here, either it wasn't a rate limit error, or retries were exhausted, or wait was too long.
+                if is_rate_limit_error(e):
+                     logger.error("rate_limit_exceeded_error", repo=repo_full_name, status=403)
+                     raise ValueError("GitHub API rate limit exceeded. Please try again later.")
+
                 logger.error("access_forbidden", repo=repo_full_name, status=403)
                 raise ValueError(
                     f"Access forbidden (403). Your token may not have permission to access repository '{repo_full_name}'. "
@@ -138,7 +239,7 @@ class GitHubService:
                 raise ValueError(f"GitHub API error: {str(e)}")
     
     def get_file_content(self, repo, file_path, ref='main'):
-        try:
+        def _get_content():
             file_content = repo.get_contents(file_path, ref=ref)
             if file_content.encoding == 'base64':
                 content = base64.b64decode(file_content.content).decode('utf-8')
@@ -147,6 +248,9 @@ class GitHubService:
             
             logger.debug("file_content_fetched", path=file_path, size=len(content))
             return content
+
+        try:
+            return self._execute_with_retry(_get_content)
         except UnknownObjectException:
             logger.debug("file_not_found", path=file_path)
             return None
@@ -167,7 +271,13 @@ class GitHubService:
             return contents
 
         try:
-            items = repo.get_contents(path, ref=ref)
+            # Recursion makes _execute_with_retry tricky if we wrap the whole method.
+            # Instead, wrap the API call.
+            def _get_items():
+                return repo.get_contents(path, ref=ref)
+
+            items = self._execute_with_retry(_get_items)
+
             for item in items:
                 # Skip if matches pattern
                 if any(pattern in item.path.split('/') for pattern in skip_patterns):
@@ -233,6 +343,7 @@ class GitHubService:
                 })
         
         logger.info("files_loaded", count=len(files_with_content))
+        self._log_rate_limit()
         return files_with_content
     
     def create_pull_request(self, repo, title, body, head_branch, base_branch='main'):
@@ -245,12 +356,16 @@ class GitHubService:
         )
         
         try:
-            pr = repo.create_pull(
-                title=title,
-                body=body,
-                head=head_branch,
-                base=base_branch
-            )
+            def _create_pr():
+                return repo.create_pull(
+                    title=title,
+                    body=body,
+                    head=head_branch,
+                    base=base_branch
+                )
+
+            pr = self._execute_with_retry(_create_pr)
+
             logger.info("pull_request_created", pr_number=pr.number, pr_url=pr.html_url)
             return {
                 'success': True,
@@ -268,9 +383,12 @@ class GitHubService:
         logger.info("creating_branch", branch=branch_name, source=source_branch)
         
         try:
-            source = repo.get_branch(source_branch)
-            repo.create_git_ref(ref=f'refs/heads/{branch_name}', sha=source.commit.sha)
-            logger.info("branch_created", branch=branch_name, sha=source.commit.sha[:8])
+            def _create_ref():
+                source = repo.get_branch(source_branch)
+                return repo.create_git_ref(ref=f'refs/heads/{branch_name}', sha=source.commit.sha)
+
+            self._execute_with_retry(_create_ref)
+            logger.info("branch_created", branch=branch_name)
             return True
         except GithubException as e:
             logger.error("branch_creation_failed", branch=branch_name, error=str(e))
@@ -280,25 +398,32 @@ class GitHubService:
         logger.info("updating_file", path=file_path, branch=branch)
         
         try:
-            file = repo.get_contents(file_path, ref=branch)
-            repo.update_file(
-                path=file_path,
-                message=message,
-                content=content,
-                sha=file.sha,
-                branch=branch
-            )
+            def _update():
+                file = repo.get_contents(file_path, ref=branch)
+                repo.update_file(
+                    path=file_path,
+                    message=message,
+                    content=content,
+                    sha=file.sha,
+                    branch=branch
+                )
+                return True
+
+            self._execute_with_retry(_update)
             logger.info("file_updated", path=file_path)
             return True
         except UnknownObjectException:
             logger.info("file_not_exists_creating", path=file_path)
             try:
-                repo.create_file(
-                    path=file_path,
-                    message=message,
-                    content=content,
-                    branch=branch
-                )
+                def _create():
+                    repo.create_file(
+                        path=file_path,
+                        message=message,
+                        content=content,
+                        branch=branch
+                    )
+
+                self._execute_with_retry(_create)
                 logger.info("file_created", path=file_path)
                 return True
             except GithubException as e:
