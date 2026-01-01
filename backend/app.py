@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from services.groq_service import GroqService
 from services.github_service import GitHubService
 from services.pr_service import PRService
+from services import db as database
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -33,12 +34,27 @@ def load_config():
     }
 
 def load_jobs():
+    """Load jobs from database or fall back to JSON file."""
+    if database.is_db_available():
+        return database.get_jobs()
+    
+    # Fallback to JSON file
     if os.path.exists(jobs_file):
         with open(jobs_file, 'r') as f:
             return json.load(f)
     return []
 
 def save_job(job):
+    """Save job to database or fall back to JSON file."""
+    if database.is_db_available():
+        existing = database.get_job_by_id(job.get('id'))
+        if existing:
+            database.update_job(job.get('id'), job)
+        else:
+            database.insert_job(job)
+        return
+    
+    # Fallback to JSON file
     jobs = load_jobs()
     existing_index = None
     for i, existing_job in enumerate(jobs):
@@ -54,6 +70,35 @@ def save_job(job):
     jobs = jobs[:100]
     with open(jobs_file, 'w') as f:
         json.dump(jobs, f)
+
+def is_job_in_progress(repo_full_name, issue_number):
+    """Check if there is already a job in progress for this issue."""
+    jobs = load_jobs()
+    for job in jobs:
+        if (job.get('repo') == repo_full_name and
+            job.get('issueNumber') == issue_number and
+            job.get('status') in ['processing', 'generating', 'analyzing']):
+            return True
+    return False
+
+def is_rate_limited(repo_full_name, issue_number, window_seconds=60):
+    """Check if a job was created for this issue recently."""
+    jobs = load_jobs()
+    now = datetime.now()
+    for job in jobs:
+        if (job.get('repo') == repo_full_name and
+            job.get('issueNumber') == issue_number):
+
+            created_at_str = job.get('createdAt')
+            if created_at_str:
+                try:
+                    created_at = datetime.fromisoformat(created_at_str)
+                    time_diff = (now - created_at).total_seconds()
+                    if time_diff < window_seconds:
+                        return True
+                except ValueError:
+                    continue
+    return False
 
 def verify_github_signature(payload_body, signature_header, secret):
     if not signature_header or not secret:
@@ -159,6 +204,15 @@ def handle_webhook():
             'issue_data': issue
         }), 400
     
+    # Check for duplicates and rate limiting
+    if is_job_in_progress(repo_full_name, issue_number):
+        logger.warning("job_duplicate_prevented", repo=repo_full_name, issue=issue_number)
+        return jsonify({'message': 'Job already in progress for this issue'}), 429
+
+    if is_rate_limited(repo_full_name, issue_number):
+        logger.warning("job_rate_limited", repo=repo_full_name, issue=issue_number)
+        return jsonify({'message': 'Rate limit exceeded for this issue. Please wait.'}), 429
+
     job = {
         'id': f"{repo_full_name}-{issue_number}-{datetime.now().timestamp()}",
         'repo': repo_full_name,
@@ -354,6 +408,26 @@ def get_repos():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/repos/<path:repo_full_name>/issues', methods=['GET'])
+def get_repo_issues(repo_full_name):
+    """Get issues for a specific repository."""
+    config = load_config()
+    github_token = config.get('github_token')
+
+    if not github_token:
+        return jsonify({'error': 'GitHub token not configured'}), 500
+
+    try:
+        github_service = GitHubService(github_token)
+        issues = github_service.get_issues(repo_full_name)
+        return jsonify({'issues': issues, 'count': len(issues)}), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error("get_repo_issues_failed", error=str(e))
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/jobs/<job_id>/logs', methods=['GET'])
 def get_job_logs(job_id):
     """Get detailed logs for a specific job."""
@@ -381,15 +455,36 @@ def health_check():
         'groq_key': bool(config.get('groq_key')),
     }
     
+    # Verify GitHub scopes if token exists
+    github_scopes = None
+    if checks['github_token']:
+        try:
+            github_service = GitHubService(config.get('github_token'))
+            scope_info = github_service.verify_token_scopes()
+            github_scopes = scope_info
+            if not scope_info.get('valid'):
+                checks['github_api'] = False
+            elif not scope_info.get('has_repo_scope'):
+                # We don't mark it as unhealthy, but we report it
+                pass
+        except Exception as e:
+            checks['github_api'] = False
+            logger.error("health_check_github_failed", error=str(e))
+
     all_healthy = all(checks.values())
     
-    return jsonify({
+    response = {
         'status': 'healthy' if all_healthy else 'degraded',
         'timestamp': datetime.now().isoformat(),
         'checks': checks,
         'environment': os.environ.get('FLASK_ENV', 'production'),
         'version': '1.0.0'
-    }), 200 if all_healthy else 503
+    }
+
+    if github_scopes:
+        response['github_scopes'] = github_scopes
+
+    return jsonify(response), 200 if all_healthy else 503
 
 
 @app.route('/api/test-sandbox', methods=['POST'])
@@ -539,6 +634,69 @@ console.log("=".repeat(50));
             'type': type(e).__name__,
         }), 500
 
+# =====================
+# Authentication Routes
+# =====================
+# NOTE: Authentication is now handled by Better Auth on the frontend.
+# These routes are kept for backward compatibility but will redirect.
+
+@app.route('/api/auth/signup', methods=['POST'])
+def auth_signup():
+    """Auth now handled by Better Auth on frontend."""
+    return jsonify({
+        'error': 'Please use the frontend authentication. Visit /login to sign up with GitHub.'
+    }), 410
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    """Auth now handled by Better Auth on frontend."""
+    return jsonify({
+        'error': 'Please use the frontend authentication. Visit /login to sign in with GitHub.'
+    }), 410
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def auth_logout():
+    """Auth now handled by Better Auth on frontend."""
+    return jsonify({'message': 'Use frontend /api/auth/signout for logout'}), 410
+
+
+@app.route('/api/auth/user', methods=['GET'])
+def auth_user():
+    """Auth now handled by Better Auth on frontend."""
+    return jsonify({
+        'error': 'Please use the frontend /api/auth/session to get user info.'
+    }), 410
+
+
+# =====================
+# Stats Route
+# =====================
+
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    """Get job and issue statistics."""
+    if not database.is_db_available():
+        # Return stats from JSON file fallback
+        jobs = load_jobs()
+        return jsonify({
+            'total_jobs': len(jobs),
+            'completed_jobs': len([j for j in jobs if j.get('status') == 'completed']),
+            'failed_jobs': len([j for j in jobs if j.get('status') == 'failed']),
+            'processing_jobs': len([j for j in jobs if j.get('status') == 'processing']),
+            'total_issues': 0,
+            'total_repos': 0
+        }), 200
+    
+    # Get stats from database
+    stats = database.get_stats()
+    
+    if 'error' in stats:
+        return jsonify(stats), 500
+    
+    return jsonify(stats), 200
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)
-
