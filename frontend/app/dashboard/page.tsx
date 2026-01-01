@@ -1,12 +1,30 @@
 "use client";
 
 import { Sidebar } from "@/components/dashboard/Sidebar";
+import { OnboardingModal } from "@/components/dashboard/OnboardingModal";
 import { AlertTriangle } from "lucide-react";
+import { useState, useEffect } from "react";
 
 export default function Dashboard() {
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    // Check if onboarding has been seen
+    const hasSeenOnboarding = localStorage.getItem("notsudo_onboarding_seen");
+    if (!hasSeenOnboarding) {
+      setShowOnboarding(true);
+    }
+  }, []);
+
+  const handleCloseOnboarding = () => {
+    setShowOnboarding(false);
+    localStorage.setItem("notsudo_onboarding_seen", "true");
+  };
+
   return (
     <div className="min-h-screen bg-black">
       <Sidebar />
+      <OnboardingModal isOpen={showOnboarding} onClose={handleCloseOnboarding} />
       
       {/* Main Content */}
       <main className="ml-64 min-h-screen">
