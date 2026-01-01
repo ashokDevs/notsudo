@@ -16,8 +16,22 @@ const nextConfig = {
   async rewrites() {
     return [
       {
+        // Proxy all API routes to Flask backend EXCEPT auth routes
+        // Auth routes are handled by Better Auth in Next.js
         source: '/api/:path*',
         destination: 'http://localhost:8000/api/:path*',
+        has: [
+          {
+            type: 'header',
+            key: 'x-skip-auth-check',
+            value: undefined,
+          },
+        ],
+      },
+      {
+        // Fallback: proxy non-auth API routes
+        source: '/api/((?!auth).*)',
+        destination: 'http://localhost:8000/api/$1',
       },
     ]
   },

@@ -287,3 +287,70 @@
 .cursor-blink {
   animation: blink 1s infinite;
 }
+
+/* E2B-Style Dashboard Utilities */
+.e2b-card {
+  position: relative;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.e2b-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: 
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 20px 20px;
+  opacity: 0.5;
+}
+
+.e2b-card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Status Badge Styles */
+.status-processing {
+  background: rgba(245, 158, 11, 0.2);
+  color: rgb(245, 158, 11);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.status-completed {
+  background: rgba(34, 197, 94, 0.2);
+  color: rgb(34, 197, 94);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.status-failed {
+  background: rgba(239, 68, 68, 0.2);
+  color: rgb(239, 68, 68);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Corner Marker */
+.corner-marker::before,
+.corner-marker::after,
+.corner-marker > .corner-bl::before,
+.corner-marker > .corner-br::before {
+  content: "+";
+  position: absolute;
+  color: rgba(255, 255, 255, 0.1);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+}
+
+.corner-marker::before { top: 4px; left: 4px; }
+.corner-marker::after { top: 4px; right: 4px; }
+.corner-marker > .corner-bl::before { bottom: 4px; left: 4px; }
+.corner-marker > .corner-br::before { bottom: 4px; right: 4px; }
+
+/* Line clamp utility */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
