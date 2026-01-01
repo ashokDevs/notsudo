@@ -1,16 +1,22 @@
 "use client";
 
 import { Sidebar } from "@/components/dashboard/Sidebar";
-import { Github, Check, AlertCircle } from "lucide-react";
-import { useState } from "react";
+import { Github, Check, AlertCircle, LogOut } from "lucide-react";
+import { authClient } from "@/lib/auth-client";
 
 export default function SettingsPage() {
-  const [isConnected, setIsConnected] = useState(false);
+  const { data: session } = authClient.useSession();
+  const isConnected = !!session;
 
-  const handleConnectGithub = () => {
-    // TODO: Implement GitHub OAuth flow
-    // For now, just simulate connection
-    setIsConnected(true);
+  const handleConnectGithub = async () => {
+    await authClient.signIn.social({
+        provider: "github",
+        callbackURL: "/dashboard/settings"
+    });
+  };
+
+  const handleDisconnect = async () => {
+    await authClient.signOut();
   };
 
   return (
@@ -36,14 +42,46 @@ export default function SettingsPage() {
               </div>
               <div className="p-6">
                 {isConnected ? (
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-green-500/20 border border-green-500/30 flex items-center justify-center">
-                      <Check className="w-6 h-6 text-green-500" />
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-4">
+                      {session?.user?.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={session.user.image}
+                          alt={session.user.name || "User"}
+                          className="w-12 h-12 rounded-full border border-white/10"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-green-500/20 border border-green-500/30 flex items-center justify-center">
+                          <Check className="w-6 h-6 text-green-500" />
+                        </div>
+                      )}
+                      <div>
+                        <p className="font-mono text-sm text-white">
+                          Connected as {session?.user?.name || "User"}
+                        </p>
+                        <p className="font-mono text-xs text-gray-500">
+                           {session?.user?.email}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-mono text-sm text-white">Connected to GitHub</p>
-                      <p className="font-mono text-xs text-gray-500">Your account is linked</p>
+
+                    <div className="mt-2 p-3 bg-white/5 rounded border border-white/10">
+                        <p className="font-mono text-xs text-gray-400 mb-2">Granted Scopes:</p>
+                        <div className="flex flex-wrap gap-2">
+                            <span className="px-2 py-1 bg-green-500/10 text-green-400 text-xs font-mono rounded border border-green-500/20">repo</span>
+                            <span className="px-2 py-1 bg-green-500/10 text-green-400 text-xs font-mono rounded border border-green-500/20">user</span>
+                            <span className="px-2 py-1 bg-green-500/10 text-green-400 text-xs font-mono rounded border border-green-500/20">read:org</span>
+                        </div>
                     </div>
+
+                    <button
+                        onClick={handleDisconnect}
+                        className="inline-flex items-center gap-2 px-4 py-2 mt-2 bg-red-500/10 text-red-400 font-mono text-xs font-medium hover:bg-red-500/20 transition-colors rounded border border-red-500/20 w-fit"
+                    >
+                        <LogOut className="w-4 h-4" />
+                        Disconnect
+                    </button>
                   </div>
                 ) : (
                   <div className="space-y-4">
