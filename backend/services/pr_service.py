@@ -1,4 +1,5 @@
 import time
+import uuid
 
 from utils.logger import get_logger
 
@@ -71,7 +72,21 @@ class PRService:
         
         logger.info("file_changes_received", count=len(file_changes))
         
-        branch_name = f"ai-fix-issue-{issue_number}-{int(time.time())}"
+        # Generate a unique branch name using UUID to avoid collisions
+        base_branch_name = f"ai-fix-issue-{issue_number}"
+        branch_name = f"{base_branch_name}-{uuid.uuid4().hex[:8]}"
+
+        # Check if branch exists (unlikely with UUID but required check)
+        # We try up to 3 times to find a non-existent branch name
+        for _ in range(3):
+            try:
+                repo.get_branch(branch_name)
+                # If we get here, branch exists. Generate new UUID and try again
+                branch_name = f"{base_branch_name}-{uuid.uuid4().hex[:8]}"
+            except Exception:
+                # Branch doesn't exist (or other error), safe to try creating
+                break
+
         logger.info("creating_branch", branch=branch_name)
         branch_created = self.github_service.create_branch(repo, branch_name)
         

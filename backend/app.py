@@ -375,15 +375,36 @@ def health_check():
         'groq_key': bool(config.get('groq_key')),
     }
     
+    # Verify GitHub scopes if token exists
+    github_scopes = None
+    if checks['github_token']:
+        try:
+            github_service = GitHubService(config.get('github_token'))
+            scope_info = github_service.verify_token_scopes()
+            github_scopes = scope_info
+            if not scope_info.get('valid'):
+                checks['github_api'] = False
+            elif not scope_info.get('has_repo_scope'):
+                # We don't mark it as unhealthy, but we report it
+                pass
+        except Exception as e:
+            checks['github_api'] = False
+            logger.error("health_check_github_failed", error=str(e))
+
     all_healthy = all(checks.values())
     
-    return jsonify({
+    response = {
         'status': 'healthy' if all_healthy else 'degraded',
         'timestamp': datetime.now().isoformat(),
         'checks': checks,
         'environment': os.environ.get('FLASK_ENV', 'production'),
         'version': '1.0.0'
-    }), 200 if all_healthy else 503
+    }
+
+    if github_scopes:
+        response['github_scopes'] = github_scopes
+
+    return jsonify(response), 200 if all_healthy else 503
 
 
 @app.route('/api/test-sandbox', methods=['POST'])

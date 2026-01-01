@@ -14,6 +14,49 @@ class GitHubService:
         self.github = Github(token)
         logger.info("github_service_initialized")
     
+    def verify_token_scopes(self):
+        """
+        Verify if the token has the required 'repo' scope for private repositories.
+        """
+        try:
+            # Access user to trigger request and populate scopes
+            user = self.github.get_user()
+            # We access a property to ensure the request is made
+            _ = user.login
+
+            scopes = self.github.oauth_scopes
+            logger.info("token_scopes_verified", scopes=scopes)
+
+            # Scopes can be None if not OAuth/PAT or if not provided in headers
+            if scopes is None:
+                return {
+                    'valid': True,
+                    'scopes': [],
+                    'has_repo_scope': False,
+                    'warning': 'No scopes detected.'
+                }
+
+            has_repo_scope = 'repo' in scopes
+
+            return {
+                'valid': True,
+                'scopes': scopes,
+                'has_repo_scope': has_repo_scope,
+                'warning': None if has_repo_scope else 'Missing "repo" scope. Private repositories will not be accessible.'
+            }
+        except GithubException as e:
+            logger.error("token_verification_failed", error=str(e))
+            return {
+                'valid': False,
+                'error': str(e)
+            }
+        except Exception as e:
+            logger.error("token_verification_error", error=str(e))
+            return {
+                'valid': False,
+                'error': str(e)
+            }
+
     def get_available_repos(self):
         """
         Get all repositories accessible by the GitHub token.
