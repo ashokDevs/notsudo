@@ -71,6 +71,35 @@ def save_job(job):
     with open(jobs_file, 'w') as f:
         json.dump(jobs, f)
 
+def is_job_in_progress(repo_full_name, issue_number):
+    """Check if there is already a job in progress for this issue."""
+    jobs = load_jobs()
+    for job in jobs:
+        if (job.get('repo') == repo_full_name and
+            job.get('issueNumber') == issue_number and
+            job.get('status') in ['processing', 'generating', 'analyzing']):
+            return True
+    return False
+
+def is_rate_limited(repo_full_name, issue_number, window_seconds=60):
+    """Check if a job was created for this issue recently."""
+    jobs = load_jobs()
+    now = datetime.now()
+    for job in jobs:
+        if (job.get('repo') == repo_full_name and
+            job.get('issueNumber') == issue_number):
+
+            created_at_str = job.get('createdAt')
+            if created_at_str:
+                try:
+                    created_at = datetime.fromisoformat(created_at_str)
+                    time_diff = (now - created_at).total_seconds()
+                    if time_diff < window_seconds:
+                        return True
+                except ValueError:
+                    continue
+    return False
+
 def verify_github_signature(payload_body, signature_header, secret):
     if not signature_header or not secret:
         return False
@@ -175,6 +204,15 @@ def handle_webhook():
             'issue_data': issue
         }), 400
     
+    # Check for duplicates and rate limiting
+    if is_job_in_progress(repo_full_name, issue_number):
+        logger.warning("job_duplicate_prevented", repo=repo_full_name, issue=issue_number)
+        return jsonify({'message': 'Job already in progress for this issue'}), 429
+
+    if is_rate_limited(repo_full_name, issue_number):
+        logger.warning("job_rate_limited", repo=repo_full_name, issue=issue_number)
+        return jsonify({'message': 'Rate limit exceeded for this issue. Please wait.'}), 429
+
     job = {
         'id': f"{repo_full_name}-{issue_number}-{datetime.now().timestamp()}",
         'repo': repo_full_name,
