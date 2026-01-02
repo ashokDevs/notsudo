@@ -1,11 +1,25 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
-// Types for our retro game entities
-interface Point {
+// Grid configuration
+const GRID_COLS = 20;
+const GRID_ROWS = 12;
+const FPS = 10;
+
+interface CellState {
+  opacity: number;
+  type?: 'bug' | 'rocket' | 'explosion';
+}
+
+interface Entity {
+  id: number;
   x: number;
   y: number;
+}
+
+interface Rocket extends Entity {
+  targetId: number;
 }
 
 const MODELS = [
@@ -16,251 +30,207 @@ const MODELS = [
   { id: "claude", name: "Claude 3.5 Sonnet" },
 ];
 
-interface Bug {
-  id: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  spawnTime: number;
-}
+export function HeroSection() {
+  const [cellStates, setCellStates] = useState<Record<number, CellState>>({});
+  const [selectedModel, setSelectedModel] = useState(MODELS[0].id);
+  const fadeTimeouts = useRef<Record<number, NodeJS.Timeout>>({});
 
-interface Rocket {
-  id: number;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-}
+  // Game State Refs (Better performance than state for high-frequency updates)
+  const gameState = useRef({ bugs: [] as Entity[], rockets: [] as Rocket[] });
+  const nextId = useRef(0);
+  const [, setTick] = useState(0); // Force re-render
 
-interface Particle extends Point {
-  vx: number;
-  vy: number;
-  life: number;
-  color: string;
-  size: number;
-}
+  // Safe zone for text (approximate grid coordinates)
+  // Rows 4-8, Cols 2-17
+  const isSafeZone = (x: number, y: number) => {
+    return y >= 4 && y <= 8 && x >= 2 && x <= 17;
+  };
 
-const RetroBackground = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const handleMouseEnter = useCallback((index: number) => {
+    if (fadeTimeouts.current[index]) {
+      clearTimeout(fadeTimeouts.current[index]);
+    }
+    setCellStates(prev => ({ ...prev, [index]: { opacity: 1 } }));
+  }, []);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    let animationFrameId: number;
-    let bugs: Bug[] = [];
-    let rockets: Rocket[] = [];
-    let particles: Particle[] = [];
-    let lastRocketTime = 0;
-    let nextId = 0;
-
-    const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-
-    window.addEventListener("resize", resize);
-    resize();
-
-    // Bug visual pattern (5x5 invader style)
-    const bugPattern = [
-      [1, 0, 1, 0, 1],
-      [0, 1, 1, 1, 0],
-      [1, 1, 0, 1, 1],
-      [1, 0, 1, 0, 1],
-      [1, 0, 0, 0, 1]
-    ];
-
-    // Rocket visual pattern
-    const rocketPattern = [
-      [0, 1, 0],
-      [1, 1, 1],
-      [0, 1, 0],
-      [0, 1, 0]
-    ];
-
-    const drawPixelArt = (ctx: CanvasRenderingContext2D, cx: number, cy: number, color: string, pattern: number[][], scale: number) => {
-      ctx.fillStyle = color;
-      const rows = pattern.length;
-      const cols = pattern[0].length;
-      const width = cols * scale;
-      const height = rows * scale;
-      const startX = cx - width / 2;
-      const startY = cy - height / 2;
-
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          if (pattern[r][c]) {
-            ctx.fillRect(startX + c * scale, startY + r * scale, scale, scale);
-          }
-        }
-      }
-    };
-
-    const spawnBug = () => {
-      const margin = 100; // Keep away from edges
-      // Try to avoid the exact center where text is, but random is usually fine
-      bugs.push({
-        id: nextId++,
-        x: margin + Math.random() * (canvas.width - 2 * margin),
-        y: margin + Math.random() * (canvas.height - 2 * margin),
-        width: 40,
-        height: 40,
-        spawnTime: Date.now(),
-      });
-    };
-
-    const spawnRocket = () => {
-      if (bugs.length === 0) return;
-      const target = bugs[Math.floor(Math.random() * bugs.length)];
-      
-      // Spawn from a random edge
-      let startX, startY;
-      if (Math.random() < 0.5) {
-        startX = Math.random() < 0.5 ? -20 : canvas.width + 20;
-        startY = Math.random() * canvas.height;
+  const handleMouseLeave = useCallback((index: number) => {
+    const fadeSteps = [0.8, 0.6, 0.4, 0.2, 0];
+    let stepIndex = 0;
+    const fadeStep = () => {
+      setCellStates(prev => ({
+        ...prev,
+        [index]: { ...prev[index], opacity: fadeSteps[stepIndex] }
+      }));
+      stepIndex++;
+      if (stepIndex < fadeSteps.length) {
+        fadeTimeouts.current[index] = setTimeout(fadeStep, 150);
       } else {
-        startX = Math.random() * canvas.width;
-        startY = Math.random() < 0.5 ? -20 : canvas.height + 20;
-      }
-
-      const speed = 8;
-      const dx = target.x - startX;
-      const dy = target.y - startY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      rockets.push({
-        id: nextId++,
-        x: startX,
-        y: startY,
-        vx: (dx / dist) * speed,
-        vy: (dy / dist) * speed,
-      });
-    };
-
-    const explode = (x: number, y: number) => {
-      // Create explosion particles
-      for (let i = 0; i < 15; i++) {
-        particles.push({
-          x,
-          y,
-          vx: (Math.random() - 0.5) * 12,
-          vy: (Math.random() - 0.5) * 12,
-          life: 1.0,
-          color: Math.random() > 0.5 ? '#f97316' : '#ef4444', // Orange or Red
-          size: Math.random() * 6 + 4,
+        setCellStates(prev => {
+          const newState = { ...prev };
+          delete newState[index];
+          return newState;
         });
       }
     };
+    fadeTimeouts.current[index] = setTimeout(fadeStep, 100);
+  }, []);
 
-    const loop = (time: number) => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // 1. Maintain 3 bugs
-      if (bugs.length < 3) {
-        // 5% chance to spawn per frame if missing, prevents instant snap
-        if (Math.random() < 0.05) {
-            spawnBug();
-        }
-      }
-
-      // 2. Spawn rockets periodically
-      if (time - lastRocketTime > 1200 && bugs.length > 0) {
-        spawnRocket();
-        lastRocketTime = time;
-      }
-
-      // 3. Update & Draw Bugs
-      bugs.forEach(bug => {
-        // Slight jitter
-        bug.x += (Math.random() - 0.5) * 0.8;
-        bug.y += (Math.random() - 0.5) * 0.8;
-
-        // Draw box border (box kind of design)
-        ctx.strokeStyle = '#22c55e'; // Green
-        ctx.lineWidth = 2;
-        ctx.strokeRect(bug.x - 25, bug.y - 25, 50, 50);
-
-        // Draw sprite
-        drawPixelArt(ctx, bug.x, bug.y, '#22c55e', bugPattern, 6);
-      });
-
-      // 4. Update & Draw Rockets
-      for (let i = rockets.length - 1; i >= 0; i--) {
-        const r = rockets[i];
-        r.x += r.vx;
-        r.y += r.vy;
-
-        drawPixelArt(ctx, r.x, r.y, '#f97316', rocketPattern, 4);
-
-        // Collision Check
-        let hit = false;
-        for (let j = bugs.length - 1; j >= 0; j--) {
-          const b = bugs[j];
-          const dx = b.x - r.x;
-          const dy = b.y - r.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
-          if (dist < 35) {
-            explode(b.x, b.y);
-            bugs.splice(j, 1);
-            hit = true;
-            break;
-          }
-        }
-
-        if (hit) {
-          rockets.splice(i, 1);
-        } else {
-          // Remove if out of bounds
-          if (r.x < -50 || r.x > canvas.width + 50 || r.y < -50 || r.y > canvas.height + 50) {
-             rockets.splice(i, 1);
-          }
-        }
-      }
-
-      // 5. Update & Draw Particles
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= 0.03;
-
-        if (p.life <= 0) {
-          particles.splice(i, 1);
-        } else {
-          ctx.globalAlpha = p.life;
-          ctx.fillStyle = p.color;
-          ctx.fillRect(p.x, p.y, p.size, p.size); // Square particles
-          ctx.globalAlpha = 1.0;
-        }
-      }
-
-      animationFrameId = requestAnimationFrame(loop);
-    };
-
-    animationFrameId = requestAnimationFrame(loop);
-
+  useEffect(() => {
     return () => {
-      window.removeEventListener("resize", resize);
-      cancelAnimationFrame(animationFrameId);
+      Object.values(fadeTimeouts.current).forEach(timeout => clearTimeout(timeout));
     };
   }, []);
 
-  return <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-none opacity-60" />;
-};
+  // Game Loop
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const state = gameState.current;
+      let { bugs, rockets } = state;
 
-export function HeroSection() {
-  const [selectedModel, setSelectedModel] = useState(MODELS[0].id);
+      // Spawn Bugs
+      if (Math.random() < 0.1 && bugs.length < 5) {
+        const edge = Math.floor(Math.random() * 4);
+        let x = 0, y = 0;
+        switch(edge) {
+          case 0: x = Math.floor(Math.random() * GRID_COLS); y = 0; break;
+          case 1: x = GRID_COLS - 1; y = Math.floor(Math.random() * GRID_ROWS); break;
+          case 2: x = Math.floor(Math.random() * GRID_COLS); y = GRID_ROWS - 1; break;
+          case 3: x = 0; y = Math.floor(Math.random() * GRID_ROWS); break;
+        }
+        if (!isSafeZone(x, y)) {
+          bugs.push({ id: nextId.current++, x, y });
+        }
+      }
+
+      // Move Bugs
+      bugs = bugs.map(bug => {
+        if (Math.random() > 0.3) return bug;
+        const moves = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
+        const move = moves[Math.floor(Math.random() * moves.length)];
+        const newX = bug.x + move.x;
+        const newY = bug.y + move.y;
+        if (newX >= 0 && newX < GRID_COLS && newY >= 0 && newY < GRID_ROWS && !isSafeZone(newX, newY)) {
+          return { ...bug, x: newX, y: newY };
+        }
+        return bug;
+      });
+
+      // Spawn Rockets
+      if (Math.random() < 0.15 && rockets.length < 3 && bugs.length > 0) {
+        rockets.push({
+             id: nextId.current++,
+             x: Math.floor(GRID_COLS / 2),
+             y: 2,
+             targetId: -1
+         });
+      }
+
+      // Move Rockets
+      rockets = rockets.map(rocket => {
+          let target = bugs.find(b => b.id === rocket.targetId);
+          if (!target) {
+             let minDist = Infinity;
+             for (const b of bugs) {
+                 const dist = Math.abs(b.x - rocket.x) + Math.abs(b.y - rocket.y);
+                 if (dist < minDist) {
+                     minDist = dist;
+                     target = b;
+                 }
+             }
+             if (target) rocket.targetId = target.id;
+          }
+
+          if (target) {
+            const dx = Math.sign(target.x - rocket.x);
+            const dy = Math.sign(target.y - rocket.y);
+            // Move 1 step towards target, prioritizing axis with larger gap
+            let moveX = 0, moveY = 0;
+             if (Math.abs(target.x - rocket.x) >= Math.abs(target.y - rocket.y)) {
+                moveX = dx;
+            } else {
+                moveY = dy;
+            }
+            return { ...rocket, x: rocket.x + moveX, y: rocket.y + moveY };
+          } else {
+              // Drift down if no target
+              return { ...rocket, y: rocket.y + 1 };
+          }
+      }).filter(r => r.x >= 0 && r.x < GRID_COLS && r.y >= 0 && r.y < GRID_ROWS);
+
+      // Collisions
+      const hitBugs = new Set<number>();
+      const hitRockets = new Set<number>();
+
+      rockets.forEach(r => {
+          bugs.forEach(b => {
+              if (r.x === b.x && r.y === b.y) {
+                  hitBugs.add(b.id);
+                  hitRockets.add(r.id);
+              }
+          });
+      });
+
+      // Apply collisions
+      if (hitBugs.size > 0 || hitRockets.size > 0) {
+         bugs = bugs.filter(b => !hitBugs.has(b.id));
+         rockets = rockets.filter(r => !hitRockets.has(r.id));
+      }
+
+      // Update Ref
+      gameState.current = { bugs, rockets };
+
+      // Trigger Render
+      setTick(t => t + 1);
+
+    }, 1000 / FPS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getCellStyle = (index: number) => {
+    const x = index % GRID_COLS;
+    const y = Math.floor(index / GRID_COLS);
+
+    // Check for entities
+    const isBug = gameState.current.bugs.some(b => b.x === x && b.y === y);
+    const isRocket = gameState.current.rockets.some(r => r.x === x && r.y === y);
+
+    if (isBug) {
+        return { backgroundColor: 'rgba(34, 197, 94, 0.8)' }; // Green
+    }
+    if (isRocket) {
+        return { backgroundColor: 'rgba(249, 115, 22, 1)' }; // Orange
+    }
+
+    const state = cellStates[index];
+    if (!state) return {};
+
+    return {
+      backgroundColor: `rgba(249, 115, 22, ${state.opacity * 0.5})`,
+    };
+  };
 
   return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 bg-black overflow-hidden">
-      {/* Retro Gaming Background */}
-      <RetroBackground />
+    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 bg-black overflow-hidden pt-32 md:pt-20">
+      {/* Grid Background */}
+      <div className="absolute inset-0 z-0">
+        <div
+          className="w-full h-full grid"
+          style={{
+            gridTemplateColumns: `repeat(${GRID_COLS}, 1fr)`,
+            gridTemplateRows: `repeat(${GRID_ROWS}, 1fr)`,
+          }}
+        >
+          {Array.from({ length: GRID_COLS * GRID_ROWS }).map((_, index) => (
+            <div
+              key={index}
+              className="border border-white/10 transition-colors duration-300"
+              style={getCellStyle(index)}
+              onMouseEnter={() => handleMouseEnter(index)}
+              onMouseLeave={() => handleMouseLeave(index)}
+            />
+          ))}
+        </div>
+      </div>
 
       {/* Content */}
       <div className="relative z-10 text-center max-w-5xl mx-auto pointer-events-none">

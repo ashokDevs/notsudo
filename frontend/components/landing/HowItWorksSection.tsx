@@ -44,10 +44,10 @@ const steps: Step[] = [
     description: "",
     icon: (
       <div className="w-full h-32 bg-gray-900 border border-gray-700 rounded-sm p-4 font-mono text-xs overflow-hidden relative leading-relaxed">
-        <div className="text-gray-500">&quot;dependencies&quot;: {"{"}</div>
-        <div className="text-red-500 bg-red-900/10">- &quot;next&quot;: &quot;10.2.3&quot;,</div>
-        <div className="text-green-500 bg-green-900/10">+ &quot;next&quot;: &quot;15.4.5&quot;,</div>
-        <div className="text-gray-300">&quot;react&quot;: &quot;19.1.1&quot;,</div>
+        <div className="text-gray-500">"dependencies": {"{"}</div>
+        <div className="text-red-500 bg-red-900/10">- "next": "10.2.3",</div>
+        <div className="text-green-500 bg-green-900/10">+ "next": "15.4.5",</div>
+        <div className="text-gray-300">"react": "19.1.1",</div>
         <div className="text-gray-500">{"}"}</div>
       </div>
     ),
