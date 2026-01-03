@@ -2,6 +2,196 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==================== RETRO THEME ==================== */
+
+/* Font Family Definitions */
+.font-retro-heading {
+  font-family: var(--font-retro-heading), "Press Start 2P", monospace;
+}
+
+.font-retro-body {
+  font-family: var(--font-retro-body), "VT323", monospace;
+}
+
+.font-retro {
+  font-family: var(--font-retro-body), "VT323", monospace;
+}
+
+/* Retro Colors */
+:root {
+  --retro-orange: #f97316;
+  --retro-green: #22c55e;
+  --retro-cyan: #06b6d4;
+  --retro-pink: #ec4899;
+  --retro-purple: #a855f7;
+  --retro-yellow: #eab308;
+  --retro-red: #ef4444;
+}
+
+/* Retro Neon Glow Effects */
+.retro-glow-orange {
+  text-shadow: 
+    0 0 5px var(--retro-orange),
+    0 0 10px var(--retro-orange),
+    0 0 20px var(--retro-orange),
+    0 0 40px var(--retro-orange);
+}
+
+.retro-glow-green {
+  text-shadow: 
+    0 0 5px var(--retro-green),
+    0 0 10px var(--retro-green),
+    0 0 20px var(--retro-green),
+    0 0 40px var(--retro-green);
+}
+
+.retro-glow-cyan {
+  text-shadow: 
+    0 0 5px var(--retro-cyan),
+    0 0 10px var(--retro-cyan),
+    0 0 20px var(--retro-cyan),
+    0 0 40px var(--retro-cyan);
+}
+
+/* Retro Box Glow */
+.retro-box-glow {
+  box-shadow: 
+    0 0 5px var(--retro-orange),
+    0 0 10px var(--retro-orange),
+    inset 0 0 5px rgba(249, 115, 22, 0.3);
+}
+
+.retro-box-glow-green {
+  box-shadow: 
+    0 0 5px var(--retro-green),
+    0 0 10px var(--retro-green),
+    inset 0 0 5px rgba(34, 197, 94, 0.3);
+}
+
+/* Scanlines Effect */
+.retro-scanlines {
+  position: relative;
+}
+
+.retro-scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.15),
+    rgba(0, 0, 0, 0.15) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  pointer-events: none;
+}
+
+/* Pixelated Border */
+.retro-border {
+  border: 4px solid;
+  border-image: 
+    linear-gradient(
+      45deg,
+      var(--retro-orange) 0%,
+      var(--retro-pink) 50%,
+      var(--retro-purple) 100%
+    ) 1;
+}
+
+.retro-border-orange {
+  border: 3px solid var(--retro-orange);
+}
+
+.retro-border-green {
+  border: 3px solid var(--retro-green);
+}
+
+/* Retro Button Style */
+.retro-button {
+  font-family: var(--font-retro-body), "VT323", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border: 3px solid currentColor;
+  background: transparent;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.retro-button:hover {
+  background: var(--retro-orange);
+  color: black;
+  box-shadow: 
+    0 0 10px var(--retro-orange),
+    0 0 20px var(--retro-orange);
+}
+
+/* Retro Card */
+.retro-card {
+  background: rgba(0, 0, 0, 0.8);
+  border: 2px solid rgba(249, 115, 22, 0.3);
+  position: relative;
+}
+
+.retro-card::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  right: -4px;
+  bottom: -4px;
+  border: 1px solid rgba(249, 115, 22, 0.2);
+  pointer-events: none;
+}
+
+/* Blink Animation for retro cursor */
+@keyframes retro-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.retro-cursor::after {
+  content: "█";
+  animation: retro-blink 1s infinite;
+  color: var(--retro-orange);
+}
+
+/* CRT Screen Effect */
+.retro-crt {
+  animation: retro-flicker 0.15s infinite;
+}
+
+@keyframes retro-flicker {
+  0% { opacity: 0.97; }
+  50% { opacity: 1; }
+  100% { opacity: 0.98; }
+}
+
+/* Rainbow text for special highlights */
+.retro-rainbow {
+  background: linear-gradient(
+    90deg,
+    var(--retro-red),
+    var(--retro-orange),
+    var(--retro-yellow),
+    var(--retro-green),
+    var(--retro-cyan),
+    var(--retro-purple),
+    var(--retro-pink)
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: retro-rainbow-shift 3s linear infinite;
+}
+
+@keyframes retro-rainbow-shift {
+  to { background-position: 200% center; }
+}
+
+/* ==================== END RETRO THEME ==================== */
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -286,4 +476,71 @@
 
 .cursor-blink {
   animation: blink 1s infinite;
+}
+
+/* E2B-Style Dashboard Utilities */
+.e2b-card {
+  position: relative;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.e2b-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: 
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 20px 20px;
+  opacity: 0.5;
+}
+
+.e2b-card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Status Badge Styles */
+.status-processing {
+  background: rgba(245, 158, 11, 0.2);
+  color: rgb(245, 158, 11);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.status-completed {
+  background: rgba(34, 197, 94, 0.2);
+  color: rgb(34, 197, 94);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.status-failed {
+  background: rgba(239, 68, 68, 0.2);
+  color: rgb(239, 68, 68);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Corner Marker */
+.corner-marker::before,
+.corner-marker::after,
+.corner-marker > .corner-bl::before,
+.corner-marker > .corner-br::before {
+  content: "+";
+  position: absolute;
+  color: rgba(255, 255, 255, 0.1);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+}
+
+.corner-marker::before { top: 4px; left: 4px; }
+.corner-marker::after { top: 4px; right: 4px; }
+.corner-marker > .corner-bl::before { bottom: 4px; left: 4px; }
+.corner-marker > .corner-br::before { bottom: 4px; right: 4px; }
+
+/* Line clamp utility */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

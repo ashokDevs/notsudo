@@ -1,28 +1,61 @@
+/**
+ * Better Auth - Server Configuration
+ * Using Better Auth's built-in PostgreSQL adapter (Kysely-based)
+ * No external ORM required - Better Auth handles schema and migrations
+ */
 import { betterAuth } from "better-auth";
-import Database from "better-sqlite3";
+import { Pool } from "pg";
 
-let db;
-try {
-    db = new Database("auth.db");
-} catch (e) {
-    console.warn("Could not initialize sqlite database", e);
-    // Dummy implementation for build time or environments where better-sqlite3 fails
-    db = {
-        prepare: () => ({ get: () => null, run: () => null }),
-        transaction: (fn: any) => fn,
-    }
-}
+// Debug logging
+const databaseUrl = process.env.DATABASE_URL;
+console.log("[Auth Debug] Initializing Better Auth...");
+console.log("[Auth Debug] DATABASE_URL exists:", !!databaseUrl);
+console.log("[Auth Debug] GITHUB_CLIENT_ID exists:", !!process.env.GITHUB_CLIENT_ID);
+console.log("[Auth Debug] GITHUB_CLIENT_SECRET exists:", !!process.env.GITHUB_CLIENT_SECRET);
+console.log("[Auth Debug] BETTER_AUTH_SECRET exists:", !!process.env.BETTER_AUTH_SECRET);
 
 export const auth = betterAuth({
-    database: {
-        db: db,
-        provider: "sqlite",
+  // Use built-in PostgreSQL adapter - pass Pool directly
+  // Better Auth will create tables automatically if they don't exist
+  database: new Pool({
+    connectionString: databaseUrl,
+  }),
+  
+  // Base URL for callbacks
+  baseURL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+  
+  // Trusted origins for CORS
+  trustedOrigins: [
+    "http://localhost:3000",
+    process.env.NEXT_PUBLIC_APP_URL || "",
+  ].filter(Boolean),
+  
+  // Email/password auth disabled (only using GitHub)
+  emailAndPassword: {
+    enabled: false,
+  },
+  
+  // GitHub OAuth
+  socialProviders: {
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID!,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+      // Request repo scope to access user's repositories
+      scope: ["read:user", "user:email", "repo"],
     },
-    socialProviders: {
-        github: {
-            clientId: process.env.GITHUB_CLIENT_ID || "PLACEHOLDER_ID",
-            clientSecret: process.env.GITHUB_CLIENT_SECRET || "PLACEHOLDER_SECRET",
-            scope: ["repo", "read:org", "user"],
-        }
-    }
+  },
+  
+  // Session configuration
+  session: {
+    expiresIn: 60 * 60 * 24 * 7, // 7 days
+    updateAge: 60 * 60 * 24, // 1 day
+  },
+  
+  // Debug logging for development
+  logger: {
+    disabled: false,
+    level: "debug",
+  },
 });
+
+export type Session = typeof auth.$Infer.Session;

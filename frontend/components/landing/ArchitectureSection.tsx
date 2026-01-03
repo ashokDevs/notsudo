@@ -260,19 +260,19 @@ export function ArchitectureSection() {
   }, []);
 
   return (
-    <section className="relative py-24 px-4 bg-black overflow-hidden">
+    <section className="relative py-24 px-4 bg-black overflow-hidden border-t-2 border-orange-500/30">
       <div className="relative z-10 max-w-7xl mx-auto">
         {/* Section Label */}
         <div className="flex items-center gap-3 mb-8">
-          <div className="w-3 h-3 rounded-full bg-emerald-500" />
-          <span className="text-sm font-medium text-gray-400 uppercase tracking-wider">
-            ARCHITECTURE
+          <div className="w-3 h-3 bg-emerald-500" />
+          <span className="text-lg font-retro-body text-emerald-500 uppercase tracking-wider">
+            [ SYSTEM DIAGRAM ]
           </span>
         </div>
 
         {/* Heading Only */}
-        <h2 className="text-4xl lg:text-5xl font-bold text-white mb-12 leading-tight">
-          How It Works
+        <h2 className="font-retro-heading text-xl lg:text-2xl text-white mb-12 leading-relaxed uppercase tracking-wider">
+          How It <span className="text-emerald-400">Works</span>
         </h2>
 
         {/* Architecture Diagram */}
@@ -281,7 +281,7 @@ export function ArchitectureSection() {
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
           viewport={{ once: true }}
-          className="rounded-2xl border border-white/10 overflow-hidden"
+          className="border-2 border-emerald-500/30 overflow-hidden hover:border-emerald-500 transition-colors"
         >
           {isMobile ? (
             <MobileArchitectureView />

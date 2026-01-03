@@ -10,3 +10,6 @@ httpx<0.28
 docker>=7.1.0
 boto3>=1.34.0
 groq>=0.9.0
+supabase>=2.0.0
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0

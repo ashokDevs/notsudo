@@ -1,45 +1,40 @@
 "use client";
 
+import { useState } from "react";
+import { PixelButton } from "@/components/ui/PixelButton";
+import { WaitlistModal } from "@/components/ui/WaitlistModal";
+
 export function GetStartedSection() {
+  const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
+
   return (
-    <section className="relative bg-black">
-
-      {/* Main Content */}
-      <div className="border-b border-gray-800">
+    <section className="relative bg-black border-t-2 border-orange-500/30">
+      <div className="border-b-2 border-orange-500/30">
         <div className="max-w-6xl mx-auto px-4 py-24">
-         
-
-          {/* Content */}
           <div className="text-center">
-
-            {/* Title */}
-            <h2 className="font-mono text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 tracking-tight uppercase">
+            <h2 className="font-retro-heading text-xl md:text-2xl lg:text-3xl text-white mb-8 leading-relaxed tracking-wide uppercase">
               GET STARTED{" "}
-              <span className="inline-block border-2 border-white px-2 py-0.5">
+              <span className="inline-block border-4 border-green-500 px-4 py-2 retro-box-glow-green">
                 TODAY
               </span>
             </h2>
 
-            {/* Subtitle */}
-            <p className="text-gray-400 max-w-lg mx-auto mb-10">
+            <p className="text-gray-400 max-w-lg mx-auto mb-10 font-retro-body text-xl">
               Stop letting issues pile up. Tag @notsudo and
               <br />
               get working pull requests in minutes, not days.
             </p>
 
-            {/* CTA Button */}
             <div className="flex justify-center">
-              <a
-                href="/login"
-                className="px-8 py-3 text-xs font-mono text-black bg-white hover:bg-gray-100 transition-all duration-200 border border-white"
-              >
-                START FOR FREE
-              </a>
+              <PixelButton onClick={() => setIsWaitlistOpen(true)} variant="green" size="lg">
+                Join Waitlist
+              </PixelButton>
             </div>
           </div>
         </div>
       </div>
+
+      <WaitlistModal isOpen={isWaitlistOpen} onClose={() => setIsWaitlistOpen(false)} />
     </section>
   );
 }
-

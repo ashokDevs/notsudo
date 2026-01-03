@@ -39,17 +39,17 @@ export function FAQSection() {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
-    <section className="relative py-32 px-4">
+    <section className="relative py-32 px-4 bg-black border-t-2 border-orange-500/30">
       <div className="relative z-10 max-w-3xl mx-auto">
         {/* Section Header */}
         <div className="text-center mb-16">
-          <span className="inline-block px-4 py-1.5 rounded-full text-sm font-medium bg-teal-500/10 text-teal-400 border border-teal-500/20 mb-4">
-            FAQ
+          <span className="inline-block px-4 py-2 text-lg font-retro-body text-purple-500 border-2 border-purple-500/50 mb-6 uppercase tracking-wider">
+            [ FAQ ]
           </span>
-          <h2 className="text-4xl md:text-5xl font-bold text-white mb-4">
+          <h2 className="font-retro-heading text-xl md:text-2xl text-white mb-4 leading-relaxed uppercase tracking-wider">
             All your questions
             <br />
-            <span className="gradient-text">Answered</span>
+            <span className="text-purple-400">Answered</span>
           </h2>
         </div>
 
@@ -61,17 +61,17 @@ export function FAQSection() {
             return (
               <div
                 key={index}
-                className="glass-card rounded-xl overflow-hidden"
+                className="border-2 border-purple-500/30 bg-black overflow-hidden hover:border-purple-500 transition-colors"
               >
                 <button
                   onClick={() => setOpenIndex(isOpen ? null : index)}
-                  className="w-full px-6 py-5 flex items-center justify-between text-left hover:bg-white/[0.02] transition-colors"
+                  className="w-full px-6 py-5 flex items-center justify-between text-left hover:bg-purple-500/5 transition-colors"
                 >
-                  <span className="font-medium text-white pr-4">
+                  <span className="font-retro-body text-lg text-white pr-4 uppercase tracking-wider">
                     {faq.question}
                   </span>
                   <ChevronDown 
-                    className={`w-5 h-5 text-gray-400 flex-shrink-0 transition-transform duration-300 ${
+                    className={`w-5 h-5 text-purple-500 flex-shrink-0 transition-transform duration-300 ${
                       isOpen ? "rotate-180" : ""
                     }`}
                   />
@@ -82,7 +82,7 @@ export function FAQSection() {
                     isOpen ? "max-h-96" : "max-h-0"
                   }`}
                 >
-                  <div className="px-6 pb-5 text-gray-400 leading-relaxed">
+                  <div className="px-6 pb-5 text-gray-400 font-retro-body text-lg leading-relaxed">
                     {faq.answer}
                   </div>
                 </div>
@@ -94,3 +94,4 @@ export function FAQSection() {
     </section>
   );
 }
+

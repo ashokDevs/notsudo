@@ -1,164 +1,108 @@
 "use client";
 
+import { useState } from "react";
+import { PixelButton } from "@/components/ui/PixelButton";
+import { WaitlistModal } from "@/components/ui/WaitlistModal";
+
 interface PricingTier {
   tier: string;
   name: string;
-  price: string;
-  priceSubtext?: string;
   features: string[];
-  cta: string;
-  ctaStyle: "outline" | "filled";
-  footer: string;
-  featured?: boolean;
+  description: string;
+  image?: string;
 }
 
 const pricingTiers: PricingTier[] = [
   {
-    tier: "Starter",
-    name: "Free",
-    price: "",
+    tier: "NotSudo",
+    name: "Get started with real coding tasks.",
     features: [
-      "Up to 10 issues resolved /month",
-      "Basic bug fixes & refactoring",
-      "Community Discord support",
-      "Public repos only",
+      "15 tasks per day",
+      "3 concurrent tasks",
+      "Access Opus 4.5, Codex, Gemini 2.5",
     ],
-    cta: "START FOR FREE",
-    ctaStyle: "outline",
-    footer: "(✓) NO CC REQUIRED",
+    description: "",
   },
   {
-    tier: "Pro",
-    name: "$49",
-    price: "/MO",
+    tier: "NotSudo in Pro",
+    name: "For devs who ship daily and want to stay in the flow.",
     features: [
-      "Unlimited issues resolved",
-      "Feature development & tests",
-      "Private repos supported",
-      "Priority PR reviews",
-      "Slack integration",
+      "100 tasks per day, enough to run NotSudo throughout your coding day",
+      "15 concurrent tasks, so you can run multiple threads in parallel",
+      "Access latest models: Opus 4.5, Codex, Gemini 3",
     ],
-    cta: "GET STARTED",
-    ctaStyle: "filled",
-    footer: "($) CANCEL ANYTIME",
-    featured: true,
+    description: "",
   },
   {
-    tier: "Team",
-    name: "Custom",
-    price: "",
-    features: [],
-    cta: "CONTACT US",
-    ctaStyle: "outline",
-    footer: "($) VOLUME DISCOUNTS",
+    tier: "NotSudo in Ultra",
+    name: "For builders who run agents at scale.",
+    features: [
+      "300 tasks per day to handle the most demanding development cycles",
+      "60 concurrent tasks, built for massively parallel workflows",
+      "Priority access: Opus 4.5, Codex, Gemini 3",
+    ],
+    description: "",
   },
 ];
 
 export function PricingSection() {
+  const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
+
   return (
-    <section className="relative py-24 px-4 bg-black">
+    <section id="pricing" className="relative py-24 px-4 bg-black border-t-2 border-orange-500/30">
       <div className="max-w-6xl mx-auto">
-        {/* Section Header */}
-        <div className="text-center mb-12">
-          <span className="inline-block px-3 py-1 text-xs font-mono text-gray-400 border border-gray-700 mb-6">
+        <div className="text-center mb-16">
+          <span className="inline-block px-4 py-2 text-lg font-retro-body text-orange-500 border-2 border-orange-500/50 mb-6 uppercase tracking-wider">
             [ PRICING ]
           </span>
-
-          <h2 className="font-mono text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 tracking-tight">
-            SIMPLE{" "}
-            <span className="inline-block border-2 border-orange-500 px-2 py-0.5">
-              PRICING
-            </span>
+          <h2 className="font-retro-heading text-xl md:text-2xl lg:text-3xl text-white mb-6 leading-relaxed tracking-wide uppercase">
+            Find the NotSudo plan that
+            <br />
+            fits your workflow
           </h2>
 
-          <p className="text-gray-400 max-w-lg mx-auto font-mono text-sm">
-            Cheaper than an intern. Works harder than your best engineer.
-            <br />
-            No benefits, no drama, just code.
+          <p className="text-gray-400 max-w-2xl mx-auto font-retro-body text-xl leading-relaxed">
+            NotSudo scales with how you build, from quick fixes to fully async,
+            multi-agent development. Choose the plan that gives you the speed,
+            throughput, and model access you need.
           </p>
         </div>
 
-        {/* Pricing Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-0 border border-gray-700">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {pricingTiers.map((tier, index) => (
             <div
               key={index}
-              className={`relative p-8 flex flex-col ${
-                tier.featured
-                  ? "bg-white border-x border-gray-700"
-                  : "bg-black"
-              } ${index !== 0 ? "md:border-l border-t md:border-t-0 border-gray-700" : ""}`}
+              className="bg-black border border-gray-800 p-8 flex flex-col h-full hover:border-orange-500/50 transition-colors group"
             >
-              {/* Tier Label */}
-              <div className="text-center mb-2">
-                <span
-                  className={`text-sm ${
-                    tier.featured ? "text-orange-500" : "text-gray-500"
-                  }`}
-                >
-                  {tier.tier}
-                </span>
-              </div>
+              <h3 className="text-xl font-retro-body text-orange-500 mb-4 uppercase tracking-wider">
+                [ {tier.tier} ]
+              </h3>
 
-              {/* Price */}
-              <div className="text-center mb-2">
-                <span className={`text-3xl md:text-4xl font-bold font-serif ${tier.featured ? 'text-black' : 'text-white'}`}>
-                  {tier.name}
-                </span>
-                {tier.price && (
-                  <span className="text-sm text-gray-500">{tier.price}</span>
-                )}
-              </div>
+              <p className="text-gray-400 font-retro-body text-lg mb-8 min-h-[60px]">
+                {tier.name}
+              </p>
 
-              {/* Features */}
-              <div className="flex-1 mb-8">
-                {tier.features.length > 0 ? (
-                  <ul className="space-y-3">
-                    {tier.features.map((feature, featureIndex) => (
-                      <li
-                        key={featureIndex}
-                        className={`flex items-start gap-2 text-sm ${tier.featured ? 'text-gray-700' : 'text-gray-300'}`}
-                      >
-                        <span className="text-orange-500 mt-0.5">✓</span>
-                        <span>{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-center text-sm text-gray-500">
-                    Contact us for custom solution
-                    <br />
-                    with special pricing.
-                  </p>
-                )}
-              </div>
+              <ul className="space-y-4 mb-8 flex-1">
+                {tier.features.map((feature, featureIndex) => (
+                  <li
+                    key={featureIndex}
+                    className="flex items-start gap-3 text-base text-gray-300 font-retro-body leading-relaxed"
+                  >
+                    <span className="text-orange-500 mt-1">►</span>
+                    <span>{feature}</span>
+                  </li>
+                ))}
+              </ul>
 
-              {/* CTA Button */}
-              <div className="text-center">
-                <a
-                  href="#"
-                  className={`inline-block px-8 py-3 text-xs font-mono tracking-wider transition-all duration-200 ${
-                    tier.ctaStyle === "filled"
-                      ? "bg-black text-white hover:bg-gray-800"
-                      : tier.featured
-                        ? "bg-transparent text-black border border-black hover:bg-black hover:text-white"
-                        : "bg-transparent text-white border border-white hover:bg-white hover:text-black"
-                  }`}
-                >
-                  {tier.cta}
-                </a>
-              </div>
-
-              {/* Footer */}
-              <div className="text-center mt-4">
-                <span className="text-xs font-mono text-gray-500">
-                  {tier.footer}
-                </span>
-              </div>
+              <PixelButton onClick={() => setIsWaitlistOpen(true)} className="w-full">
+                Join Waitlist
+              </PixelButton>
             </div>
           ))}
         </div>
       </div>
+
+      <WaitlistModal isOpen={isWaitlistOpen} onClose={() => setIsWaitlistOpen(false)} />
     </section>
   );
 }
