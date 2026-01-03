@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/dashboard/Sidebar";
+import { RepoList } from "@/components/dashboard/RepoList";
 import { JobsTable } from "@/components/dashboard/jobs/JobsTable";
 import { OnboardingModal } from "@/components/dashboard/OnboardingModal";
 import { StatsCard } from "@/components/dashboard/StatsCard";

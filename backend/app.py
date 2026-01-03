@@ -4,6 +4,7 @@ import hmac
 import hashlib
 from datetime import datetime
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -25,6 +26,9 @@ CORS(app)
 
 jobs_file = "/tmp/jobs.json"
 
+# Global executor for thread management
+# Limit max_workers to avoid resource exhaustion
+executor = ThreadPoolExecutor(max_workers=10)
 
 def load_config():
     return {
@@ -111,6 +115,15 @@ def verify_github_signature(payload_body, signature_header, secret):
     
     return hmac.compare_digest(expected_signature, github_signature)
 
+def get_current_webhook_url():
+    base_url = os.environ.get('REPL_SLUG')
+    if base_url:
+        domain = f"{base_url}.{os.environ.get('REPL_OWNER', 'replit')}.repl.co"
+        webhook_url = f"https://{domain}/api/webhook"
+    else:
+        webhook_url = "http://localhost:8000/api/webhook"
+    return webhook_url
+
 @app.route('/api/config', methods=['POST'])
 def save_configuration():
     return jsonify({
@@ -128,14 +141,136 @@ def get_configuration():
 
 @app.route('/api/webhook-url', methods=['GET'])
 def get_webhook_url():
-    base_url = os.environ.get('REPL_SLUG')
-    if base_url:
-        domain = f"{base_url}.{os.environ.get('REPL_OWNER', 'replit')}.repl.co"
-        webhook_url = f"https://{domain}/api/webhook"
-    else:
-        webhook_url = "http://localhost:8000/api/webhook"
+    return jsonify({'webhookUrl': get_current_webhook_url()}), 200
+
+@app.route('/api/repos/webhook', methods=['POST'])
+def manage_webhook():
+    """Enable or disable webhook for a repository."""
+    config = load_config()
+    github_token = config.get('github_token')
+
+    if not github_token:
+        return jsonify({'error': 'GitHub token not configured'}), 500
+
+    data = request.get_json()
+    repo_full_name = data.get('repo')
+    action = data.get('action') # 'enable' or 'disable'
     
-    return jsonify({'webhookUrl': webhook_url}), 200
+    if not repo_full_name or action not in ['enable', 'disable']:
+        return jsonify({'error': 'Invalid request parameters'}), 400
+
+    try:
+        github_service = GitHubService(github_token)
+        webhook_url = get_current_webhook_url()
+
+        if action == 'enable':
+            secret = config.get('webhook_secret', '')
+            if not secret:
+                 return jsonify({'error': 'Webhook secret not configured in env'}), 500
+
+            result = github_service.create_webhook(repo_full_name, webhook_url, secret)
+            return jsonify({'success': True, 'webhook': result}), 200
+        else:
+            result = github_service.delete_webhook(repo_full_name, webhook_url)
+            return jsonify({'success': result}), 200
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error("manage_webhook_failed", error=str(e))
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/repos/webhook/bulk', methods=['POST'])
+def manage_webhook_bulk():
+    """Enable or disable webhooks for multiple repositories."""
+    config = load_config()
+    github_token = config.get('github_token')
+
+    if not github_token:
+        return jsonify({'error': 'GitHub token not configured'}), 500
+
+    data = request.get_json()
+    repos = data.get('repos', [])
+    action = data.get('action') # 'enable' or 'disable'
+
+    if not repos or action not in ['enable', 'disable']:
+        return jsonify({'error': 'Invalid request parameters'}), 400
+
+    try:
+        github_service = GitHubService(github_token)
+        webhook_url = get_current_webhook_url()
+        secret = config.get('webhook_secret', '')
+
+        if action == 'enable' and not secret:
+             return jsonify({'error': 'Webhook secret not configured in env'}), 500
+
+        results = {}
+
+        def process_repo(repo_name):
+            try:
+                if action == 'enable':
+                    github_service.create_webhook(repo_name, webhook_url, secret)
+                    return repo_name, True
+                else:
+                    github_service.delete_webhook(repo_name, webhook_url)
+                    return repo_name, True
+            except Exception as e:
+                logger.error("bulk_webhook_failed_single", repo=repo_name, action=action, error=str(e))
+                return repo_name, False
+
+        # Use global executor
+        futures = {executor.submit(process_repo, repo): repo for repo in repos}
+        for future in futures:
+            repo_name, success = future.result()
+            results[repo_name] = success
+
+        return jsonify({'results': results}), 200
+
+    except Exception as e:
+        logger.error("manage_webhook_bulk_failed", error=str(e))
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/repos/check-webhooks', methods=['POST'])
+def check_webhooks():
+    """Check webhook status for a list of repositories."""
+    config = load_config()
+    github_token = config.get('github_token')
+
+    if not github_token:
+        return jsonify({'error': 'GitHub token not configured'}), 500
+
+    data = request.get_json()
+    repos = data.get('repos', [])
+
+    if not repos:
+        return jsonify({'statuses': {}}), 200
+
+    try:
+        github_service = GitHubService(github_token)
+        webhook_url = get_current_webhook_url()
+
+        results = {}
+
+        # Helper function for threading
+        def check_repo(repo_name):
+            try:
+                status = github_service.get_webhook_status(repo_name, webhook_url)
+                return repo_name, bool(status)
+            except Exception as e:
+                logger.warning("check_webhook_failed_single", repo=repo_name, error=str(e))
+                return repo_name, False
+
+        # Use global executor
+        futures = {executor.submit(check_repo, repo): repo for repo in repos}
+        for future in futures:
+            repo_name, status = future.result()
+            results[repo_name] = status
+
+        return jsonify({'statuses': results}), 200
+
+    except Exception as e:
+        logger.error("check_webhooks_failed", error=str(e))
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/webhook', methods=['POST'])
 def handle_webhook():

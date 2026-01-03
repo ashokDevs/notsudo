@@ -433,6 +433,72 @@ class GitHubService:
             logger.error("file_update_failed", path=file_path, error=str(e))
             return False
 
+    def get_webhook_status(self, repo_full_name, webhook_url):
+        logger.info("checking_webhook_status", repo=repo_full_name, url=webhook_url)
+        try:
+            repo = self.get_repository(repo_full_name)
+            hooks = repo.get_hooks()
+            for hook in hooks:
+                if hook.config.get('url') == webhook_url:
+                    return {'id': hook.id, 'active': hook.active, 'events': hook.events}
+            return None
+        except Exception as e:
+            logger.error("webhook_check_failed", error=str(e))
+            # Don't raise here if it's just checking status - return None or propagate?
+            # If repo doesn't exist, get_repository raises.
+            # If permissions issue, get_hooks might fail.
+            # We should probably propagate the error so the UI knows.
+            raise
+
+    def create_webhook(self, repo_full_name, webhook_url, secret):
+        logger.info("creating_webhook", repo=repo_full_name, url=webhook_url)
+        try:
+            repo = self.get_repository(repo_full_name)
+
+            # Check if exists
+            try:
+                existing = self.get_webhook_status(repo_full_name, webhook_url)
+                if existing:
+                    return existing
+            except Exception:
+                # Proceed to try creating if check fails? Or fail?
+                # If we can't read hooks, we probably can't write them.
+                pass
+
+            config = {
+                'url': webhook_url,
+                'content_type': 'json',
+                'secret': secret,
+                'insecure_ssl': '0'
+            }
+
+            hook = repo.create_hook(
+                name='web',
+                config=config,
+                events=['issues', 'issue_comment', 'pull_request'],
+                active=True
+            )
+            logger.info("webhook_created", id=hook.id)
+            return {'id': hook.id, 'active': hook.active, 'events': hook.events}
+        except Exception as e:
+            logger.error("webhook_creation_failed", error=str(e))
+            raise
+
+    def delete_webhook(self, repo_full_name, webhook_url):
+        logger.info("deleting_webhook", repo=repo_full_name, url=webhook_url)
+        try:
+            repo = self.get_repository(repo_full_name)
+            hooks = repo.get_hooks()
+            for hook in hooks:
+                if hook.config.get('url') == webhook_url:
+                    hook.delete()
+                    logger.info("webhook_deleted", id=hook.id)
+                    return True
+            return False
+        except Exception as e:
+            logger.error("webhook_deletion_failed", error=str(e))
+            raise
+
     def get_issues(self, repo_full_name, state='open'):
         """Get issues for a repository."""
         logger.info("fetching_issues", repo=repo_full_name, state=state)
