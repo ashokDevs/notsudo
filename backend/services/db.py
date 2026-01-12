@@ -221,16 +221,26 @@ def atomic_create_job_if_not_exists(
             
             now = datetime.utcnow()
             window_start = now - timedelta(seconds=window_seconds)
+            # Stale job timeout - jobs processing for more than 10 minutes are considered stale
+            stale_timeout = now - timedelta(minutes=10)
             
             # Check for any in-progress or recently created jobs for this issue
             # The job ID format is: "{repo_full_name}-{issue_number}-{timestamp}"
             job_id_prefix = f"{repo_full_name}-{issue_number}-"
             
+            # Only block if:
+            # 1. Job is in progress AND was created within the last 10 minutes (not stale)
+            # 2. OR job was created within the rate limit window (regardless of status)
             existing = session.query(Job).filter(
                 and_(
                     Job.id.like(f"{job_id_prefix}%"),
                     or_(
-                        Job.status.in_(['processing', 'generating', 'analyzing']),
+                        # In-progress jobs that aren't stale
+                        and_(
+                            Job.status.in_(['processing', 'generating', 'analyzing']),
+                            Job.created_at >= stale_timeout
+                        ),
+                        # Rate limiting: any job created in the last minute
                         Job.created_at >= window_start
                     )
                 )

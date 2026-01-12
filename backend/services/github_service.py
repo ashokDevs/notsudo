@@ -388,6 +388,15 @@ class GitHubService:
             }
     
     def create_branch(self, repo, branch_name, source_branch='main'):
+        """
+        Create a new branch from source_branch.
+        
+        Returns:
+            dict with:
+                - success: True if branch exists (created or already existed)
+                - created: True if we created it, False if it already existed
+                - error: Error message if failed
+        """
         logger.info("creating_branch", branch=branch_name, source=source_branch)
         
         try:
@@ -397,10 +406,14 @@ class GitHubService:
 
             self._execute_with_retry(_create_ref)
             logger.info("branch_created", branch=branch_name)
-            return True
+            return {'success': True, 'created': True}
         except GithubException as e:
+            # Handle "Reference already exists" error (422)
+            if e.status == 422 and "Reference already exists" in str(e.data):
+                logger.info("branch_already_exists", branch=branch_name)
+                return {'success': True, 'created': False, 'already_exists': True}
             logger.error("branch_creation_failed", branch=branch_name, error=str(e))
-            return False
+            return {'success': False, 'error': str(e)}
 
     def delete_branch(self, repo, branch_name):
         """Delete a branch from the repository."""

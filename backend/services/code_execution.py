@@ -44,15 +44,29 @@ USE_AWS_SANDBOX = os.environ.get('USE_AWS_SANDBOX', 'false').lower() == 'true'
 
 
 @dataclass
+class SandboxSession:
+    """Represents a persistent sandbox session (container or task)."""
+    id: str
+    type: str  # 'docker' or 'aws'
+    work_dir: str  # temp_dir on host
+    resource_id: str  # container_id or task_arn
+    stack_config: Optional[StackConfig] = None
+    image_tag: Optional[str] = None  # Built image tag to cleanup later
+
+
+
+@dataclass
 class ExecutionResult:
     """Result of the full code validation flow."""
     success: bool
-    stage: str  # 'clone', 'install', 'test', 'build', 'security'
+    stage: str  # 'clone', 'install', 'test', 'build', 'security', 'typecheck'
     logs: list[str] = field(default_factory=list)
     error: Optional[str] = None
     exit_code: int = 0
     formatted_file_changes: Optional[list[dict]] = None  # Updated file contents after formatting
     security_issues: Optional[list[dict]] = None  # Security vulnerabilities found
+    typecheck_errors: Optional[str] = None  # Type checking errors for AI fixing
+    session: Optional[SandboxSession] = None  # Active session if keep_alive was requested
     
     def add_log(self, message: str):
         self.logs.append(message)
@@ -128,6 +142,8 @@ class CodeExecutionService:
         file_changes: list[dict],
         run_tests: bool = True,
         run_build: bool = False,
+        session: Optional[SandboxSession] = None,
+        keep_alive: bool = False
     ) -> ExecutionResult:
         """
         Validate code changes in a Docker sandbox.
@@ -138,6 +154,8 @@ class CodeExecutionService:
             file_changes: List of file changes to apply
             run_tests: Whether to run tests
             run_build: Whether to run build command
+            session: Existing sandbox session to reuse (skips clone/setup if valid)
+            keep_alive: Whether to keep the session active after validation
             
         Returns:
             ExecutionResult with success status and logs
@@ -146,18 +164,64 @@ class CodeExecutionService:
         temp_dir = None
         container = None
         built_image = None
+        stack_config = None
+        
+        # Reuse session if provided
+        if session:
+            result.add_log(f"Reusing existing sandbox session: {session.id}")
+            temp_dir = session.work_dir
+            stack_config = session.stack_config
+            built_image = session.image_tag
+            
+            # TODO: Verify container is still alive
+            if session.type == 'docker':
+                # Convert string ID back to container object (simulated)
+                if self.docker_sandbox:
+                    try:
+                        container = self.docker_sandbox.client.containers.get(session.resource_id)
+                        result.add_log(f"Connected to active container: {container.short_id}")
+                    except Exception as e:
+                        result.add_log(f"Failed to reconnect to container {session.resource_id}: {e}")
+                        # Fallback: Create new container, but reuse directory
+                        container = None
+            elif session.type == 'aws':
+                # Support AWS persistence if implemented
+                pass
         
         try:
-            # Step 1: Clone repository
-            result.stage = 'clone'
-            temp_dir = tempfile.mkdtemp(prefix='sandbox-')
-            result.add_log(f"Created temp directory: {temp_dir}")
+            # Step 1: Clone or Prepare Repository
+            if not session or not temp_dir:
+                result.stage = 'clone'
+                temp_dir = tempfile.mkdtemp(prefix='sandbox-')
+                result.add_log(f"Created temp directory: {temp_dir}")
+                
+                clone_result = self._clone_repo(repo_url, branch, temp_dir)
+                if not clone_result.success:
+                    result.error = f"Clone failed: {clone_result.stderr}"
+                    return result
+                result.add_log("Repository cloned successfully")
+            else:
+                # If reusing session, we might want to reset the repo state to clean
+                # But typically we just apply new changes on top.
+                # Ideally, we should 'git checkout .' to discard uncommitted changes from previous failed run
+                try:
+                    subprocess.run(
+                        ["git", "checkout", "."], 
+                        cwd=temp_dir, 
+                        check=False, 
+                        capture_output=True
+                    )
+                    result.add_log("Reset working directory for new changes")
+                except Exception:
+                    pass
             
-            clone_result = self._clone_repo(repo_url, branch, temp_dir)
-            if not clone_result.success:
-                result.error = f"Clone failed: {clone_result.stderr}"
+            # Step 1.5: Validate JSON files before applying
+            result.stage = 'validate_json'
+            json_errors = self._validate_json_files(file_changes)
+            if json_errors:
+                result.error = f"JSON validation failed:\n" + "\n".join(json_errors)
+                result.add_log(f"JSON errors found: {json_errors}")
                 return result
-            result.add_log("Repository cloned successfully")
             
             # Step 2: Apply file changes (edit or patch)
             result.stage = 'apply'
@@ -176,10 +240,13 @@ class CodeExecutionService:
             if formatted_changes:
                 result.formatted_file_changes = formatted_changes
             
-            # Step 3: Detect stack
-            result.stage = 'detect'
-            file_paths = self._get_file_list(temp_dir)
-            stack_config = self.stack_detector.detect_from_file_list(file_paths)
+            # Step 3: Detect stack (if not already detected in session)
+            if not stack_config:
+                result.stage = 'detect'
+                file_paths = self._get_file_list(temp_dir)
+                stack_config = self.stack_detector.detect_from_file_list(file_paths)
+            else:
+                result.add_log(f"Using cached stack config: {stack_config.stack_type}")
             
             if stack_config is None:
                 # Can't detect stack - skip validation and allow PR creation
@@ -194,7 +261,7 @@ class CodeExecutionService:
                 # Production: Use AWS Fargate
                 result.add_log("Using AWS Fargate sandbox")
                 return self._run_in_aws(
-                    temp_dir, file_changes, stack_config, run_tests, run_build, result
+                    temp_dir, file_changes, stack_config, run_tests, run_build, result, session, keep_alive
                 )
             elif self.docker_sandbox is not None and self.docker_sandbox.is_available():
                 # Development: Use local Docker
@@ -205,22 +272,32 @@ class CodeExecutionService:
                 result.add_log("Docker not available, running locally")
                 return self._run_locally(temp_dir, stack_config, run_tests, run_build, result)
             
-            # Step 5: Resolve image and create container
-            result.stage = 'container'
-            try:
-                image = self.docker_sandbox.resolve_image(stack_config, temp_dir)
-                if stack_config.dockerfile_path:
-                    built_image = image  # Track for cleanup
-                result.add_log(f"Using image: {image}")
-            except Exception as e:
-                # Fallback to stack image if project image fails
-                image = stack_config.runtime
-                result.add_log(f"Fallback to stack image: {image}")
+            # Step 5: Resolve image and create container (if needed)
+            if container:
+                 result.add_log(f"Reusing container: {container.short_id}")
+            else:
+                result.stage = 'container'
+                try:
+                    if session and session.image_tag:
+                         image = session.image_tag
+                         built_image = image
+                         result.add_log(f"Using cached image: {image}")
+                    else:
+                        image = self.docker_sandbox.resolve_image(stack_config, temp_dir)
+                        if stack_config.dockerfile_path:
+                            built_image = image  # Track for cleanup
+                        result.add_log(f"Using image: {image}")
+                except Exception as e:
+                    # Fallback to stack image if project image fails
+                    image = stack_config.runtime
+                    result.add_log(f"Fallback to stack image: {image}")
+                
+                container = self.docker_sandbox.create_container(image, temp_dir)
+                result.add_log(f"Created container: {container.short_id}")
             
-            container = self.docker_sandbox.create_container(image, temp_dir)
-            result.add_log(f"Created container: {container.short_id}")
-            
-            # Step 6: Install dependencies (network is enabled by default in container)
+            # Step 6: Install dependencies
+            # If reusing container, dependencies might already be installed.
+            # But we run install anyway to be safe (npm/pip usually cache/skip if satisfied)
             result.stage = 'install'
             install_result = self._run_install(container, stack_config, result)
             if not install_result.success:
@@ -238,14 +315,25 @@ class CodeExecutionService:
                 result.security_issues = [i.to_dict() for i in scan_result.issues]
                 return result
             
-            # Step 7: Run tests
+            # Step 6.6: Type checking
+            result.stage = 'typecheck'
+            typecheck_result = self._run_typecheck(container, stack_config, result)
+            if not typecheck_result.success:
+                result.error = f"Type check failed: {result.typecheck_errors[:500] if result.typecheck_errors else 'Unknown error'}"
+                result.exit_code = typecheck_result.exit_code
+                return result
+            
+            # Step 7: Run tests (only if test script exists)
             if run_tests:
                 result.stage = 'test'
-                test_result = self._run_tests(container, stack_config, result)
-                if not test_result.success:
-                    result.error = f"Tests failed with exit code {test_result.exit_code}"
-                    result.exit_code = test_result.exit_code
-                    return result
+                if not self._has_test_script(temp_dir, stack_config):
+                    result.add_log("No test script found in project - skipping tests")
+                else:
+                    test_result = self._run_tests(container, stack_config, result)
+                    if not test_result.success:
+                        result.error = f"Tests failed with exit code {test_result.exit_code}"
+                        result.exit_code = test_result.exit_code
+                        return result
             
             # Step 8: Run build (optional)
             if run_build and stack_config.build_command:
@@ -266,13 +354,178 @@ class CodeExecutionService:
             
         finally:
             # Cleanup
+            if keep_alive:
+                # If we want to keep alive, persist session even if validation failed (so we can fix it)
+                # But only if we actually have a container/environment to persist
+                if container:
+                    import uuid
+                    session_id = session.id if session else str(uuid.uuid4())
+                    
+                    result.session = SandboxSession(
+                        id=session_id,
+                        type='docker',
+                        work_dir=temp_dir,
+                        resource_id=container.id,
+                        stack_config=stack_config,
+                        image_tag=built_image
+                    )
+                    result.add_log(f"Persisting session {session_id}")
+                elif session:
+                    # If we had a session but maybe container creation failed this time?
+                    # Or we leveraged an existing session type?
+                    # Just return the original session to be safe, ensuring we don't lose context if possible
+                    result.session = session
+            
+            if not result.session:
+                # Traditional cleanup if not keeping alive or if session creation failed
+                if container and self.docker_sandbox:
+                    self.docker_sandbox.cleanup(container)
+                if built_image and self.docker_sandbox and not (session and session.image_tag == built_image):
+                    # Only cleanup image if it wasn't inherited from session
+                    self.docker_sandbox.cleanup_image(built_image)
+                if temp_dir and os.path.exists(temp_dir):
+                    if not session or session.work_dir != temp_dir:
+                         # Only clean directory if it wasn't inherited
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def cleanup_session(self, session: SandboxSession):
+        """Cleanup a persistent session."""
+        try:
+            if session.type == 'docker':
+                if self.docker_sandbox:
+                    try:
+                        container = self.docker_sandbox.client.containers.get(session.resource_id)
+                        self.docker_sandbox.cleanup(container)
+                    except Exception:
+                        pass # Container might be gone already
+                    
+                    if session.image_tag:
+                        self.docker_sandbox.cleanup_image(session.image_tag)
+                        
+            if session.work_dir and os.path.exists(session.work_dir):
+                shutil.rmtree(session.work_dir, ignore_errors=True)
+                
+            logger.info(f"Cleaned up session {session.id}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup session {session.id}: {e}")
+
+    def run_adhoc_command(
+        self,
+        repo_url: str,
+        command: str,
+        branch: str = "main"
+    ) -> ExecutionResult:
+        """
+        Run an ad-hoc command in a sandbox environment for the given repo.
+        Useful for AI exploration (e.g. 'ls -la', 'cat file.py').
+        """
+        result = ExecutionResult(success=False, stage='init')
+        temp_dir = None
+        container = None
+        built_image = None
+        
+        try:
+            # Step 1: Clone repository
+            result.stage = 'clone'
+            temp_dir = tempfile.mkdtemp(prefix='sandbox-adhoc-')
+            result.add_log(f"Created temp directory: {temp_dir}")
+            
+            clone_result = self._clone_repo(repo_url, branch, temp_dir)
+            if not clone_result.success:
+                result.error = f"Clone failed: {clone_result.stderr}"
+                return result
+            result.add_log("Repository cloned successfully")
+            
+            # Step 2: Detect stack
+            result.stage = 'detect'
+            file_paths = self._get_file_list(temp_dir)
+            stack_config = self.stack_detector.detect_from_file_list(file_paths)
+            
+            if stack_config is None:
+                # Fallback to minimal environment
+                stack_config = StackConfig(stack_type="generic", runtime="debian:slim", install_command="", test_command="", build_command="")
+                result.add_log("Could not detect project stack - using generic environment")
+            else:
+                result.add_log(f"Detected stack: {stack_config.stack_type}")
+            
+            # Step 3: Choose execution mode (AWS or Local)
+            # For ad-hoc commands, we follow the same preference as validate_changes
+            if self.use_aws and self.aws_sandbox:
+                # TODO: Implement AWS support for ad-hoc commands if needed
+                # For now, we'll fall back to local or error if strict AWS is required
+                pass # AWS logic to be added
+            
+            if self.docker_sandbox is not None and self.docker_sandbox.is_available():
+                result.stage = 'container'
+                result.add_log("Using local Docker sandbox")
+                
+                # Resolve image
+                try:
+                    image = self.docker_sandbox.resolve_image(stack_config, temp_dir)
+                    if stack_config.dockerfile_path:
+                        built_image = image
+                    result.add_log(f"Using image: {image}")
+                except Exception:
+                    image = stack_config.runtime
+                    result.add_log(f"Fallback to stack image: {image}")
+                
+                # Create container
+                container = self.docker_sandbox.create_container(image, temp_dir)
+                result.add_log(f"Created container: {container.short_id}")
+                
+                # Run command
+                result.stage = 'exec'
+                result.add_log(f"Executing: {command}")
+                exec_result = self.docker_sandbox.exec_command(
+                    container,
+                    command,
+                    timeout=120
+                )
+                
+                result.success = exec_result.success
+                result.exit_code = exec_result.exit_code
+                result.add_log(f"Command finished with exit code {exec_result.exit_code}")
+                result.add_log(f"Stdout:\n{exec_result.stdout}")
+                if exec_result.stderr:
+                    result.add_log(f"Stderr:\n{exec_result.stderr}")
+                
+                # Populate logs for the return object
+                result.logs.append(f"Output:\n{exec_result.stdout}")
+                if exec_result.stderr:
+                    result.logs.append(f"Error Output:\n{exec_result.stderr}")
+                    
+                return result
+
+            else:
+                # Local fallback (danger! use with caution or disable for ad-hoc)
+                # For safety, we might want to DISALLOW ad-hoc commands locally unless explicitly enabled via env
+                allow_local = os.environ.get('ALLOW_LOCAL_ADHOC_EXEC', 'false').lower() == 'true'
+                if not allow_local:
+                    result.error = "Docker not available and local ad-hoc execution is disabled for safety"
+                    return result
+                
+                # Run locally
+                result.stage = 'exec_local'
+                result.add_log("Running locally (CAUTION)")
+                
+                # TODO: Implement local run logic similar to _run_locally but for arbitrary command
+                # For now, just error out to be safe
+                result.error = "Local ad-hoc execution not yet implemented"
+                return result
+                
+        except Exception as e:
+            logger.exception("Ad-hoc execution error")
+            result.error = str(e)
+            return result
+            
+        finally:
+            # Cleanup
             if container and self.docker_sandbox:
                 self.docker_sandbox.cleanup(container)
             if built_image and self.docker_sandbox:
                 self.docker_sandbox.cleanup_image(built_image)
             if temp_dir and os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-    
+                shutil.rmtree(temp_dir, ignore_errors=True)    
     def _clone_repo(self, repo_url: str, branch: str, dest: str) -> ExecResult:
         """Clone the repository."""
         try:
@@ -307,10 +560,51 @@ class CodeExecutionService:
             )
         return change
     
+    def _validate_json_files(self, file_changes: list[dict]) -> list[str]:
+        """
+        Validate JSON files before applying changes.
+        Returns list of error messages for any malformed JSON files.
+        """
+        import json as json_module
+        
+        JSON_EXTENSIONS = {'.json'}
+        JSON_FILES = {'package.json', 'tsconfig.json', 'package-lock.json', '.eslintrc', '.prettierrc'}
+        
+        errors = []
+        
+        for c in file_changes:
+            change = self._normalize_change(c)
+            file_name = change.file_path.split('/')[-1]
+            file_ext = '.' + file_name.split('.')[-1] if '.' in file_name else ''
+            
+            # Check if this is a JSON file
+            is_json = file_ext in JSON_EXTENSIONS or file_name in JSON_FILES
+            
+            if is_json and change.new_content:
+                try:
+                    json_module.loads(change.new_content)
+                except json_module.JSONDecodeError as e:
+                    error_msg = f"{change.file_path}: JSON parse error at line {e.lineno}, column {e.colno}: {e.msg}"
+                    errors.append(error_msg)
+                    logger.warning("json_validation_failed", file=change.file_path, error=str(e))
+        
+        return errors
+    
     def _apply_edit(self, repo_path: str, change: FileChange) -> None:
         """Apply a full file replacement to the cloned repo."""
         file_path = Path(repo_path) / change.file_path
         file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Debug: Log package.json content to diagnose malformed JSON issues
+        if change.file_path.endswith('package.json'):
+            logger.info(
+                "applying_package_json",
+                file_path=change.file_path,
+                content_length=len(change.new_content),
+                content_preview=change.new_content[:500] if change.new_content else "<EMPTY>",
+                is_empty=not change.new_content or not change.new_content.strip()
+            )
+        
         file_path.write_text(change.new_content, encoding='utf-8')
     
     def _apply_patch(self, repo_path: str, change: FileChange, result: ExecutionResult) -> bool:
@@ -340,6 +634,71 @@ class CodeExecutionService:
         else:
             result.add_log(f"Patch failed for {change.file_path}: {comby_result.error}")
             return False
+    
+    def _has_test_script(self, repo_path: str, stack_config: StackConfig) -> bool:
+        """
+        Check if the project has a test script defined.
+        For Node.js projects, checks package.json for a 'test' script.
+        For Python projects, checks for pytest or test files.
+        """
+        import json as json_module
+        
+        if stack_config.stack_type == 'nodejs':
+            package_json_path = Path(repo_path) / 'package.json'
+            if package_json_path.exists():
+                try:
+                    with open(package_json_path, 'r', encoding='utf-8') as f:
+                        package_data = json_module.load(f)
+                    scripts = package_data.get('scripts', {})
+                    logger.info("checking_test_scripts", available_scripts=list(scripts.keys()))
+                    
+                    # Check for 'test' script specifically
+                    if 'test' in scripts:
+                        test_script = scripts['test']
+                        # "npm test" with no script defined has a default error, skip those
+                        if test_script and 'no test specified' not in test_script.lower():
+                            logger.info("test_script_found", script=test_script[:50])
+                            return True
+                    
+                    # Check for test:unit, test:e2e, etc. (but not just any script starting with 'test')
+                    test_variants = ['test:unit', 'test:e2e', 'test:integration', 'test:ci']
+                    for variant in test_variants:
+                        if variant in scripts and scripts[variant]:
+                            logger.info("test_variant_found", variant=variant)
+                            return True
+                    
+                    logger.info("no_test_script_found")
+                    return False
+                except (json_module.JSONDecodeError, IOError) as e:
+                    logger.warning("package_json_read_error", error=str(e))
+                    return False
+            logger.info("no_package_json_found")
+            return False
+        
+        elif stack_config.stack_type == 'python':
+            # For Python, check for pytest/test files
+            # If requirements.txt has pytest or there are test files, assume tests exist
+            req_path = Path(repo_path) / 'requirements.txt'
+            if req_path.exists():
+                try:
+                    content = req_path.read_text()
+                    if 'pytest' in content.lower():
+                        return True
+                except IOError:
+                    pass
+            
+            # Check for test directories or files
+            for item in Path(repo_path).rglob('test_*.py'):
+                return True
+            for item in Path(repo_path).rglob('*_test.py'):
+                return True
+            if (Path(repo_path) / 'tests').exists():
+                return True
+            
+            return False
+        
+        # For unknown stacks, assume tests exist
+        return True
     
     def _get_file_list(self, repo_path: str) -> list[str]:
         """Get list of all files in the repo (relative paths)."""
@@ -666,6 +1025,47 @@ class CodeExecutionService:
             result.add_log(f"Test stderr:\n{exec_result.stderr}")
         return exec_result
     
+    def _run_typecheck(
+        self,
+        container,
+        stack_config: StackConfig,
+        result: ExecutionResult
+    ) -> ExecResult:
+        """Run type checking in container."""
+        if not stack_config.typecheck_command:
+            result.add_log("No type checking configured for this stack")
+            return ExecResult(exit_code=0, stdout="", stderr="")
+        
+        # Install type checker if needed
+        if stack_config.stack_type == 'python':
+            result.add_log("Installing mypy for type checking...")
+            install_mypy = self.docker_sandbox.exec_command(
+                container,
+                "pip install mypy -q",
+                timeout=60
+            )
+            if not install_mypy.success:
+                result.add_log(f"mypy install warning: {install_mypy.stderr[:200]}")
+        
+        result.add_log(f"Running type check: {stack_config.typecheck_command}")
+        exec_result = self.docker_sandbox.exec_command(
+            container,
+            stack_config.typecheck_command,
+            timeout=120,  # 2 minutes for type checking
+        )
+        
+        if exec_result.stdout:
+            result.add_log(f"Type check output:\n{exec_result.stdout}")
+        if exec_result.stderr:
+            result.add_log(f"Type check stderr:\n{exec_result.stderr}")
+        
+        # Store typecheck errors for AI fixing
+        if not exec_result.success:
+            typecheck_output = exec_result.stdout + "\n" + exec_result.stderr
+            result.typecheck_errors = typecheck_output.strip()
+        
+        return exec_result
+    
     def _run_build(
         self, 
         container, 
@@ -721,23 +1121,28 @@ class CodeExecutionService:
                 result.error = f"Install failed: {install.stderr}"
                 return result
             
-            # Test
+            # Test (only if test script exists)
             if run_tests:
                 result.stage = 'test'
-                result.add_log(f"Running tests locally: {test_cmd}")
-                test = subprocess.run(
-                    test_cmd,
-                    shell=True,
-                    cwd=repo_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                )
-                result.add_log(f"Test output:\n{test.stdout}")
-                if test.returncode != 0:
-                    result.error = f"Tests failed: {test.stderr}"
-                    result.exit_code = test.returncode
-                    return result
+                if not self._has_test_script(repo_path, stack_config):
+                    result.add_log("No test script found in project - skipping tests")
+                else:
+                    result.add_log(f"Running tests locally: {test_cmd}")
+                    test = subprocess.run(
+                        test_cmd,
+                        shell=True,
+                        cwd=repo_path,
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                    )
+                    result.add_log(f"Test output:\n{test.stdout}")
+                    if test.returncode != 0:
+                        # Include stdout if stderr is empty (test failures often write to stdout)
+                        error_output = test.stderr.strip() or test.stdout.strip()[-1000:] or f"exit code {test.returncode}"
+                        result.error = f"Tests failed: {error_output}"
+                        result.exit_code = test.returncode
+                        return result
             
             result.success = True
             return result
@@ -758,9 +1163,16 @@ class CodeExecutionService:
         run_tests: bool,
         run_build: bool,
         result: ExecutionResult,
+        session: Optional[SandboxSession] = None,
+        keep_alive: bool = False,
     ) -> ExecutionResult:
         """Run validation in AWS ECS Fargate container."""
         result.stage = 'aws_fargate'
+        
+        # We currently don't support persistent Fargate tasks without ECS Exec
+        # But we can support reusing the local temp_dir (session)
+        if session:
+             result.add_log(f"Reusing workspace for AWS: {session.id}")
         
         try:
             # Prepare code files for upload
@@ -806,6 +1218,18 @@ class CodeExecutionService:
             
             if not fargate_result.success:
                 result.error = f"Tests failed with exit code {fargate_result.exit_code}"
+            
+            # Create session for temp_dir reuse (even if task is gone)
+            if keep_alive:
+                import uuid
+                session_id = session.id if session else str(uuid.uuid4())
+                result.session = SandboxSession(
+                    id=session_id,
+                    type='aws',
+                    work_dir=repo_path,
+                    resource_id='ephemeral-task', 
+                    stack_config=stack_config
+                )
             
             return result
             

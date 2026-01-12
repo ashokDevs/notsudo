@@ -422,6 +422,7 @@ def handle_webhook():
         return jsonify({'message': 'Ignored: not a comment creation'}), 200
     
     comment_body = comment.get('body', '')
+    comment_id = comment.get('id')  # GitHub's unique comment ID
     
     if '@notsudo' not in comment_body:
         logger.debug("webhook_ignored", reason="notsudo not mentioned")
@@ -455,9 +456,12 @@ def handle_webhook():
             'issue_data': issue
         }), 400
     
+    # Use comment_id for deduplication - same comment will have same ID across webhook retries
+    job_id = f"{repo_full_name}-{issue_number}-{comment_id}" if comment_id else f"{repo_full_name}-{issue_number}-{datetime.now().timestamp()}"
+    
     # Build job data
     job = {
-        'id': f"{repo_full_name}-{issue_number}-{datetime.now().timestamp()}",
+        'id': job_id,
         'repo': repo_full_name,
         'issueNumber': issue_number,
         'issueTitle': issue_title,
@@ -484,16 +488,30 @@ def handle_webhook():
         pr_service = PRService(github_service, ai_service)
         
         job['stage'] = 'generating'
-        job['logs'].append('AI analyzing issue...')
-        save_job(job)
         
-        result = pr_service.process_issue(
-            repo_full_name=repo_full_name,
-            issue_number=issue_number,
-            issue_title=issue_title,
-            issue_body=issue_body,
-            comment_body=comment_body
-        )
+        # Check if it's a pull request
+        is_pr = 'pull_request' in issue or bool(issue.get('pull_request'))
+        
+        if is_pr:
+            job['logs'].append('AI analyzing PR feedback...')
+            save_job(job)
+            
+            result = pr_service.process_pr_comment(
+                repo_full_name=repo_full_name,
+                pr_number=issue_number,
+                comment_body=comment_body
+            )
+        else:
+            job['logs'].append('AI analyzing issue...')
+            save_job(job)
+            
+            result = pr_service.process_issue(
+                repo_full_name=repo_full_name,
+                issue_number=issue_number,
+                issue_title=issue_title,
+                issue_body=issue_body,
+                comment_body=comment_body
+            )
         
         job['status'] = 'completed' if result.get('success') else 'failed'
         job['completedAt'] = datetime.now().isoformat()
@@ -507,6 +525,7 @@ def handle_webhook():
         return jsonify(result), 200
         
     except ValueError as e:
+        logger.error("webhook_processing_error", error=str(e), stage="value_error")
         job['status'] = 'failed'
         job['completedAt'] = datetime.now().isoformat()
         job['stage'] = 'error'
@@ -515,6 +534,7 @@ def handle_webhook():
         save_job(job)
         return jsonify({'error': str(e)}), 400
     except Exception as e:
+        logger.error("webhook_processing_failed", error=str(e), stage="exception")
         job['status'] = 'failed'
         job['completedAt'] = datetime.now().isoformat()
         job['stage'] = 'error'
@@ -596,16 +616,27 @@ def test_issue():
         pr_service = PRService(github_service, ai_service)
         
         job['stage'] = 'generating'
-        job['logs'].append('AI analyzing issue...')
-        save_job(job)
         
-        result = pr_service.process_issue(
-            repo_full_name=repo_full_name,
-            issue_number=issue_number,
-            issue_title=issue_title,
-            issue_body=issue_body,
-            comment_body=comment_body
-        )
+        is_pr = data.get('is_pr', False)
+        
+        if is_pr:
+            job['logs'].append('AI analyzing PR feedback (TEST)...')
+            save_job(job)
+            result = pr_service.process_pr_comment(
+                repo_full_name=repo_full_name,
+                pr_number=issue_number,
+                comment_body=comment_body
+            )
+        else:
+            job['logs'].append('AI analyzing issue...')
+            save_job(job)
+            result = pr_service.process_issue(
+                repo_full_name=repo_full_name,
+                issue_number=issue_number,
+                issue_title=issue_title,
+                issue_body=issue_body,
+                comment_body=comment_body
+            )
         
         job['status'] = 'completed' if result.get('success') else 'failed'
         job['completedAt'] = datetime.now().isoformat()

@@ -6,15 +6,7 @@ A GitHub automation tool that creates pull requests in response to issue comment
 
 ---
 
-## Current Architecture
 
-```
-GitHub Webhook → Flask API → AI Analysis → GitHub API → Create PR
-```
-
-**Limitation**: No code validation before PR creation.
-
----
 
 ## Target Architecture (Docker Sandbox)
 
@@ -61,37 +53,6 @@ Next.js 14 dashboard for:
 - Configuration (API keys)
 - Job history with status
 - Execution logs viewer
-
----
-
-## Implementation Tasks
-
-### Phase 1: Stack Detection ✅
-- [x] `StackDetectorService` - identify Python/Node.js by marker files
-- [x] Return: `{type, package_manager, install_cmd, test_cmd, dockerfile_path}`
-
-### Phase 2: Docker Infrastructure ✅
-- [x] Fallback Dockerfiles for Python 3.11, Node.js 20
-- [x] `DockerSandboxService` with resource limits
-- [x] Container lifecycle: create → exec → cleanup
-
-### Phase 3: Sandbox Execution ✅
-- [x] `CodeExecutionService` orchestrates full flow
-- [x] Clone repo, apply changes, run tests
-- [x] Timeout handling, error capture
-
-### Phase 4: AI Retry Loop ✅
-- [x] On test failure, send error logs to AI
-- [x] AI generates fix, retry execution
-- [x] Max 3 retries, then fail
-
-### Phase 5: Dashboard Updates ✅
-- [x] Show execution status (queued → running → testing)
-- [x] Display logs, retry count
-
-### Phase 6: Testing
-- [ ] E2E tests for Python and Node.js repos
-- [ ] Security review for container isolation
 
 ---
 

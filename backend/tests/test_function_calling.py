@@ -371,7 +371,7 @@ class TestToolDefinition:
             assert 'tools' in call_kwargs
             tools = call_kwargs['tools']
             
-            assert len(tools) == 1
+            assert len(tools) == 2
             tool = tools[0]
             
             assert tool['type'] == 'function'

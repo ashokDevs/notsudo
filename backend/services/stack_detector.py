@@ -10,6 +10,7 @@ class StackConfig:
     install_command: str
     test_command: str
     build_command: Optional[str] = None
+    typecheck_command: Optional[str] = None
     dockerfile_path: Optional[str] = None
     docker_compose_path: Optional[str] = None
 
@@ -21,7 +22,8 @@ STACK_CONFIGS = {
         package_manager='pip',
         install_command='pip install -r requirements.txt',
         test_command='pytest',
-        build_command=None
+        build_command=None,
+        typecheck_command=None  # Will be set dynamically if mypy configured
     ),
     'python-poetry': StackConfig(
         stack_type='python',
@@ -29,7 +31,8 @@ STACK_CONFIGS = {
         package_manager='poetry',
         install_command='pip install poetry && poetry install',
         test_command='poetry run pytest',
-        build_command=None
+        build_command=None,
+        typecheck_command=None  # Will be set dynamically if mypy configured
     ),
     'nodejs-npm': StackConfig(
         stack_type='nodejs',
@@ -37,7 +40,8 @@ STACK_CONFIGS = {
         package_manager='npm',
         install_command='npm install',
         test_command='npm test',
-        build_command='npm run build'
+        build_command='npm run build',
+        typecheck_command=None  # Will be set dynamically if tsconfig.json exists
     ),
     'nodejs-yarn': StackConfig(
         stack_type='nodejs',
@@ -45,7 +49,8 @@ STACK_CONFIGS = {
         package_manager='yarn',
         install_command='yarn install',
         test_command='yarn test',
-        build_command='yarn build'
+        build_command='yarn build',
+        typecheck_command=None  # Will be set dynamically if tsconfig.json exists
     ),
     'nodejs-pnpm': StackConfig(
         stack_type='nodejs',
@@ -53,7 +58,8 @@ STACK_CONFIGS = {
         package_manager='pnpm',
         install_command='pnpm install',
         test_command='pnpm test',
-        build_command='pnpm build'
+        build_command='pnpm build',
+        typecheck_command=None  # Will be set dynamically if tsconfig.json exists
     ),
 }
 
@@ -95,16 +101,38 @@ class StackDetectorService:
         dockerfile_path = self._find_dockerfile(file_paths)
         compose_path = self._find_docker_compose(file_paths)
         
-        # Return new config with Docker paths if found
-        if dockerfile_path or compose_path:
-            from dataclasses import replace
-            return replace(
-                stack_config,
-                dockerfile_path=dockerfile_path,
-                docker_compose_path=compose_path
-            )
+        # Detect type checking configuration
+        typecheck_command = self._detect_typecheck_config(filenames, stack_config)
         
-        return stack_config
+        # Return new config with enhancements if any
+        from dataclasses import replace
+        return replace(
+            stack_config,
+            dockerfile_path=dockerfile_path,
+            docker_compose_path=compose_path,
+            typecheck_command=typecheck_command
+        )
+    
+    def _detect_typecheck_config(self, filenames: set[str], stack_config: StackConfig) -> Optional[str]:
+        """Detect type checking configuration and return appropriate command."""
+        if stack_config.stack_type == 'nodejs':
+            # TypeScript: check for tsconfig.json
+            if 'tsconfig.json' in filenames:
+                return 'npx tsc --noEmit'
+        
+        elif stack_config.stack_type == 'python':
+            # Python: check for mypy configuration
+            if 'mypy.ini' in filenames or '.mypy.ini' in filenames:
+                if stack_config.package_manager == 'poetry':
+                    return 'poetry run mypy .'
+                return 'mypy --ignore-missing-imports .'
+            # Also check pyproject.toml for [tool.mypy] section (simplified check)
+            if 'pyproject.toml' in filenames:
+                # For poetry projects with pyproject.toml, enable mypy if available
+                if stack_config.package_manager == 'poetry':
+                    return 'poetry run mypy . || true'  # Don't fail if mypy not installed
+        
+        return None
     
     def _detect_stack(self, filenames: set[str]) -> Optional[StackConfig]:
         """Detect the base technology stack from filenames."""

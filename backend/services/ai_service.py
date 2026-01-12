@@ -9,14 +9,14 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Available models for OpenRouter
 AVAILABLE_MODELS = {
-    'claude-sonnet-4': {
-        'id': 'anthropic/claude-sonnet-4',
-        'name': 'Claude Sonnet 4',
+    'claude-3-5-sonnet': {
+        'id': 'anthropic/claude-3.5-sonnet',
+        'name': 'Claude 3.5 Sonnet',
         'provider': 'anthropic'
     },
 }
 
-DEFAULT_MODEL = os.environ.get("OPENROUTER_MODEL", "anthropic/claude-sonnet-4")
+DEFAULT_MODEL = os.environ.get("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
 
 # Enable LLM caching during development
 ENABLE_LLM_CACHE = os.environ.get('ENABLE_LLM_CACHE', 'false').lower() == 'true'
@@ -75,7 +75,7 @@ class AIService:
         except IOError as e:
             logger.warning("llm_cache_save_failed", error=str(e))
         
-    def analyze_issue_and_plan_changes(self, issue_title, issue_body, comment_body, codebase_files, custom_rules=None):
+    def analyze_issue_and_plan_changes(self, issue_title, issue_body, comment_body, codebase_files, custom_rules=None, repo_url=None, code_execution_service=None):
         logger.info(
             "analyzing_issue",
             issue_title=issue_title,
@@ -83,10 +83,297 @@ class AIService:
             codebase_files_count=len(codebase_files)
         )
         
+        # Build codebase context with truncation warnings for large files
+        MAX_FILE_CHARS = 2000
+        context_parts = []
+        
+        for file in codebase_files:
+            content = file['content']
+            is_truncated = len(content) > MAX_FILE_CHARS
+            
+            if is_truncated:
+                context_parts.append(
+                    f"File: {file['path']} [TRUNCATED - showing {MAX_FILE_CHARS}/{len(content)} chars]\n```\n{content[:MAX_FILE_CHARS]}\n```"
+                )
+            else:
+                context_parts.append(
+                    f"File: {file['path']}\n```\n{content}\n```"
+                )
+        
+        codebase_context = "\n\n".join(context_parts)
+        
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "edit_file",
+                    "description": "Replace entire file content. Use for new files or when the whole file structure needs to change.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "file_path": {
+                                "type": "string",
+                                "description": "The path to the file to edit"
+                            },
+                            "reason": {
+                                "type": "string",
+                                "description": "Explanation of why this change is needed"
+                            },
+                            "new_content": {
+                                "type": "string",
+                                "description": "The complete new content for the file"
+                            }
+                        },
+                        "required": ["file_path", "reason", "new_content"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "patch_file",
+                    "description": "Apply a targeted structural transformation using pattern matching. Use for renaming, updating calls, or changing specific code patterns without replacing the entire file.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "file_path": {
+                                "type": "string",
+                                "description": "The path to the file to modify"
+                            },
+                            "reason": {
+                                "type": "string",
+                                "description": "Explanation of the transformation"
+                            },
+                            "match_pattern": {
+                                "type": "string",
+                                "description": "Pattern to match using :[hole] syntax for wildcards. Example: 'print(:[arg])' matches any print call."
+                            },
+                            "replace_pattern": {
+                                "type": "string",
+                                "description": "Replacement pattern using the same :[hole] names. Example: 'logging.info(:[arg])'"
+                            }
+                        },
+                        "required": ["file_path", "reason", "match_pattern", "replace_pattern"]
+                    }
+                }
+            }
+        ]
+        
+        # Add exec tool if code execution service is available
+        if code_execution_service and repo_url:
+            tools.append({
+                "type": "function",
+                "function": {
+                    "name": "exec",
+                    "description": "Execute a shell command to explore the codebase or run tests. Use this to verify assumptions before making changes. The command runs in a sandboxed environment.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The shell command to execute (e.g., 'ls -R', 'grep -r pattern .', 'pytest tests/')"
+                            }
+                        },
+                        "required": ["command"]
+                    }
+                }
+            })
+        
+        system_prompt = """You are an expert software engineer. Analyze the GitHub issue and suggest code changes.
+
+You have specific tools for making changes.
+
+TOOLS:
+1. **patch_file** - For TARGETED changes (PREFERRED):
+   - Use :[hole_name] syntax to match any expression
+   - Example: 'print(:[arg])' → 'logging.info(:[arg])' replaces print calls
+   - Example: 'def old_name(:[args])' → 'def new_name(:[args])' renames functions
+   - Preserves surrounding code automatically
+   - Use for: renaming, updating function calls, changing imports, fixing patterns
+
+2. **edit_file** - For FULL file replacement:
+   - Use only for NEW files or when entire structure must change
+   - Provide COMPLETE file content (never truncate)
+   - Preserve exact formatting and whitespace
+
+3. **exec** - For EXPLORATION and VERIFICATION (if available):
+   - Run shell commands to check file structure, grep for patterns, or run tests.
+   - Use this to gather more information if the provided context is insufficient.
+   - NOTE: This runs in a sandbox.
+
+Rules:
+1. PREFER patch_file for targeted changes - it's safer and more precise
+2. Use edit_file only when patch_file cannot express the change
+3. Make minimal, focused changes that directly address the issue
+4. Maintain code style and conventions from the existing codebase
+5. You can use 'exec' to verify your understanding before proposing changes."""
+
+        # Add custom rules if provided
+        if custom_rules and custom_rules.strip():
+            system_prompt += f"\n\nAdditional Custom Rules:\n{custom_rules}"
+
+        user_prompt = f"""GitHub Issue: {issue_title}
+
+Issue Description:
+{issue_body}
+
+User Comment:
+{comment_body}
+
+Available Codebase Files:
+{codebase_context}
+
+Analyze this issue and determine what code changes are needed. Use the edit_file function to specify the exact changes."""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        MAX_TURNS = 5
+        current_turn = 0
+        
+        while current_turn < MAX_TURNS:
+            current_turn += 1
+            logger.info("calling_llm", model=self.model, turn=current_turn, messages_count=len(messages))
+            
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto"
+                )
+                
+                message = response.choices[0].message
+                messages.append(message)
+                
+                # Check for tool calls
+                if not message.tool_calls:
+                    # No tool calls, just return the analysis (thought process)
+                    # But we really expect tool calls for the final result.
+                    # If the model just chats, we might want to prompt it to make changes.
+                    # For now, we'll treat it as "no changes needed" or just return the text.
+                    logger.info("llm_response_no_tools", content_length=len(message.content) if message.content else 0)
+                    return {
+                        'file_changes': [],
+                        'analysis': message.content or "AI provided analysis but no code changes."
+                    }
+                
+                # Process all tool calls
+                file_changes = []
+                tool_outputs = []
+                has_exec_call = False
+                
+                for tool_call in message.tool_calls:
+                    if tool_call.function.name == "exec":
+                        has_exec_call = True
+                        if not (code_execution_service and repo_url):
+                            output = "Error: exec tool is not available in this context."
+                        else:
+                            try:
+                                args = json.loads(tool_call.function.arguments)
+                                command = args.get('command')
+                                logger.info("executing_command", command=command)
+                                
+                                exec_result = code_execution_service.run_adhoc_command(
+                                    repo_url=repo_url,
+                                    command=command
+                                )
+                                
+                                output = ""
+                                if exec_result.logs:
+                                    output += "\n".join(exec_result.logs[-5:]) # Last 5 lines of log
+                                if exec_result.error:
+                                    output += f"\nError: {exec_result.error}"
+                                    
+                                if not output:
+                                    output = "Command completed with no output."
+                                    
+                            except Exception as e:
+                                output = f"Failed to execute command: {str(e)}"
+                        
+                        tool_outputs.append({
+                            "tool_call_id": tool_call.id,
+                            "role": "tool",
+                            "name": "exec",
+                            "content": output
+                        })
+                        
+                    elif tool_call.function.name == "edit_file":
+                        # This is a final action
+                        try:
+                            args = json.loads(tool_call.function.arguments)
+                            file_path = args.get('file_path') or args.get('path')
+                            reason = args.get('reason')
+                            new_content = args.get('new_content', '')
+                            
+                            if new_content:
+                                new_content = new_content.replace('\\n', '\n').replace('\\r\\n', '\n').replace('\\r', '\n')
+                            
+                            file_changes.append({
+                                'type': 'edit',
+                                'file_path': file_path,
+                                'new_content': new_content,
+                                'reason': reason
+                            })
+                        except Exception as e:
+                            logger.error("tool_arg_parse_error", error=str(e))
+                            
+                    elif tool_call.function.name == "patch_file":
+                        # This is a final action
+                        try:
+                            args = json.loads(tool_call.function.arguments)
+                            file_changes.append({
+                                'type': 'patch',
+                                'file_path': args.get('file_path') or args.get('path'),
+                                'match_pattern': args.get('match_pattern'),
+                                'replace_pattern': args.get('replace_pattern'),
+                                'reason': args.get('reason')
+                            })
+                        except Exception as e:
+                            logger.error("tool_arg_parse_error", error=str(e))
+                
+                # If we have tool outputs (from exec), append them and continue loop
+                if tool_outputs:
+                    messages.extend(tool_outputs)
+                    # If we also had file changes mixed with exec, we should probably return the file changes?
+                    # But usually the model will exec first, then next turn do the changes.
+                    # If valid file changes are present, let's assume we are done, unless the model explicitly wants to continue.
+                    # But typically 'exec' is for information gathering.
+                    if not file_changes:
+                        continue
+                
+                # If we have file changes (and maybe execs too), we are done via the "action" tools
+                if file_changes:
+                    return {
+                        'file_changes': file_changes,
+                        'analysis': message.content or "AI suggested changes."
+                    }
+                    
+            except Exception as e:
+                logger.error("llm_call_failed", error=str(e), model=self.model)
+                raise
+        
+        # If we reached max turns without returning checks
+        return {
+            'file_changes': [],
+            'analysis': "Reached maximum conversation turns without final changes."
+        }
+
+
+    def analyze_pr_comment(self, pr_title, pr_body, comment_body, codebase_files, custom_rules=None):
+        logger.info(
+            "analyzing_pr_comment",
+            pr_title=pr_title,
+            comment_length=len(comment_body),
+            codebase_files_count=len(codebase_files)
+        )
+        
         # Check cache first
         cache_key = self._get_cache_key(
-            'analyze', issue_title, issue_body, comment_body,
-            [(f['path'], f['content'][:500]) for f in codebase_files]  # Use truncated content for cache key
+            'analyze_pr', pr_title, pr_body, comment_body,
+            [(f['path'], f['content'][:500]) for f in codebase_files]
         )
         cached = self._get_cached_response(cache_key)
         if cached:
@@ -108,14 +395,14 @@ class AIService:
                     'shown_size': MAX_FILE_CHARS
                 })
                 context_parts.append(
-                    f"File: {file['path']} [TRUNCATED - showing {MAX_FILE_CHARS}/{len(content)} chars]\n```\n{content[:MAX_FILE_CHARS]}\n```"
+                    f"File: {file['path']} [TRUNCATED - showing {MAX_FILE_CHARS}/{len(content)} chars]\\n```\\n{content[:MAX_FILE_CHARS]}\\n```"
                 )
             else:
                 context_parts.append(
-                    f"File: {file['path']}\n```\n{content}\n```"
+                    f"File: {file['path']}\\n```\\n{content}\\n```"
                 )
         
-        codebase_context = "\n\n".join(context_parts)
+        codebase_context = "\\n\\n".join(context_parts)
         
         # Log warning if files were truncated
         if truncated_files:
@@ -124,8 +411,6 @@ class AIService:
                 truncated_count=len(truncated_files),
                 files=[f['path'] for f in truncated_files]
             )
-        
-        logger.debug("codebase_context_built", context_length=len(codebase_context))
         
         tools = [
             {
@@ -140,16 +425,16 @@ class AIService:
                                 "type": "string",
                                 "description": "The path to the file to edit"
                             },
-                            "new_content": {
-                                "type": "string",
-                                "description": "The complete new content for the file"
-                            },
                             "reason": {
                                 "type": "string",
                                 "description": "Explanation of why this change is needed"
+                            },
+                            "new_content": {
+                                "type": "string",
+                                "description": "The complete new content for the file"
                             }
                         },
-                        "required": ["file_path", "new_content", "reason"]
+                        "required": ["file_path", "reason", "new_content"]
                     }
                 }
             },
@@ -165,6 +450,10 @@ class AIService:
                                 "type": "string",
                                 "description": "The path to the file to modify"
                             },
+                            "reason": {
+                                "type": "string",
+                                "description": "Explanation of the transformation"
+                            },
                             "match_pattern": {
                                 "type": "string",
                                 "description": "Pattern to match using :[hole] syntax for wildcards. Example: 'print(:[arg])' matches any print call."
@@ -172,19 +461,16 @@ class AIService:
                             "replace_pattern": {
                                 "type": "string",
                                 "description": "Replacement pattern using the same :[hole] names. Example: 'logging.info(:[arg])'"
-                            },
-                            "reason": {
-                                "type": "string",
-                                "description": "Explanation of the transformation"
                             }
                         },
-                        "required": ["file_path", "match_pattern", "replace_pattern", "reason"]
+                        "required": ["file_path", "reason", "match_pattern", "replace_pattern"]
                     }
                 }
             }
         ]
         
-        system_prompt = """You are an expert software engineer. Analyze the GitHub issue and suggest code changes.
+        system_prompt = """You are an expert software engineer addressing feedback on a Pull Request.
+The user has reviewed the code and requested changes.
 
 You have TWO tools for making changes:
 
@@ -201,33 +487,29 @@ You have TWO tools for making changes:
    - Preserve exact formatting and whitespace
 
 Rules:
-1. PREFER patch_file for targeted changes - it's safer and more precise
-2. Use edit_file only when patch_file cannot express the change
-3. Make minimal, focused changes that directly address the issue
-4. Maintain code style and conventions from the existing codebase"""
+1. Address the user's comments directly.
+2. PREFER patch_file for targeted changes - it's safer and more precise.
+3. Use edit_file only when patch_file cannot express the change.
+4. Make minimal, focused changes that directly address the feedback.
+5. Maintain code style and conventions from the existing codebase."""
 
         # Add custom rules if provided
         if custom_rules and custom_rules.strip():
-            system_prompt += f"\n\nAdditional Custom Rules:\n{custom_rules}"
+            system_prompt += f"\\n\\nAdditional Custom Rules:\\n{custom_rules}"
 
-        user_prompt = f"""GitHub Issue: {issue_title}
+        user_prompt = f"""PR Title: {pr_title}
+PR Description:
+{pr_body}
 
-Issue Description:
-{issue_body}
-
-User Comment:
+User Comment on PR:
 {comment_body}
 
-Available Codebase Files:
+Current File Contents:
 {codebase_context}
 
-Analyze this issue and determine what code changes are needed. Use the edit_file function to specify the exact changes."""
+Analyze the comment and update the code to address the feedback. Use the available tools to make changes."""
 
-        logger.info("calling_llm", model=self.model, prompt_length=len(user_prompt))
-        
-        # Log full prompts for debugging
-        logger.debug("system_prompt", prompt=system_prompt)
-        logger.debug("user_prompt", prompt=user_prompt[:5000])  # First 5k chars
+        logger.info("calling_llm_pr_feedback", model=self.model, prompt_length=len(user_prompt))
         
         try:
             response = self.client.chat.completions.create(
@@ -242,125 +524,48 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
             
             message = response.choices[0].message
             
-            # Log raw response for debugging
-            logger.info(
-                "llm_response_received",
-                has_tool_calls=bool(message.tool_calls),
-                tool_calls_count=len(message.tool_calls) if message.tool_calls else 0,
-                content_length=len(message.content) if message.content else 0
-            )
-            
-            # Log content/analysis from the model
-            if message.content:
-                logger.debug("llm_content", content=message.content[:2000])
-            
-            # Log raw tool calls
-            if message.tool_calls:
-                for i, tc in enumerate(message.tool_calls):
-                    logger.info(
-                        "tool_call_raw",
-                        index=i,
-                        function_name=tc.function.name,
-                        arguments_preview=tc.function.arguments[:500] if tc.function.arguments else None
-                    )
-            
             file_changes = []
             if message.tool_calls:
                 for tool_call in message.tool_calls:
-                    logger.debug(
-                        "processing_tool_call",
-                        function_name=tool_call.function.name,
-                        raw_args=tool_call.function.arguments[:1000] if tool_call.function.arguments else None
-                    )
-                    
                     if tool_call.function.name == "edit_file":
                         try:
                             args = json.loads(tool_call.function.arguments)
-                            file_path = args.get('file_path')
-                            reason = args.get('reason')
                             new_content = args.get('new_content', '')
-                            
-                            # Normalize newlines - some models return escaped newlines
-                            # as literal \\n strings instead of actual newline characters
+                            # Normalize newlines
                             if new_content:
-                                # Replace literal \n strings with actual newlines
-                                new_content = new_content.replace('\\n', '\n')
-                                # Also handle \\r\\n for Windows-style line endings
-                                new_content = new_content.replace('\\r\\n', '\n')
-                                # Handle any remaining \\r
-                                new_content = new_content.replace('\\r', '\n')
-                            
-                            logger.info(
-                                "file_change_parsed",
-                                file_path=file_path,
-                                reason=reason,
-                                content_length=len(new_content),
-                                content_preview=new_content[:200] if new_content else None
-                            )
+                                new_content = new_content.replace('\\\\n', '\\n').replace('\\\\r\\\\n', '\\n').replace('\\\\r', '\\n')
                             
                             file_changes.append({
-                                'type': 'edit',  # Full file replacement
-                                'file_path': file_path,
+                                'type': 'edit',
+                                'file_path': args.get('file_path') or args.get('path'),
                                 'new_content': new_content,
-                                'reason': reason
+                                'reason': args.get('reason')
                             })
-                        except json.JSONDecodeError as e:
-                            logger.error(
-                                "tool_call_parse_error",
-                                error=str(e),
-                                raw_args=tool_call.function.arguments[:500]
-                            )
+                        except Exception:
+                            logger.error("tool_arg_parse_error", function="edit_file")
                     elif tool_call.function.name == "patch_file":
                         try:
                             args = json.loads(tool_call.function.arguments)
-                            file_path = args.get('file_path')
-                            match_pattern = args.get('match_pattern', '')
-                            replace_pattern = args.get('replace_pattern', '')
-                            reason = args.get('reason', '')
-                            
-                            logger.info(
-                                "patch_change_parsed",
-                                file_path=file_path,
-                                match_pattern=match_pattern[:100],
-                                replace_pattern=replace_pattern[:100],
-                                reason=reason
-                            )
-                            
                             file_changes.append({
-                                'type': 'patch',  # Structural transformation
-                                'file_path': file_path,
-                                'match_pattern': match_pattern,
-                                'replace_pattern': replace_pattern,
-                                'reason': reason
+                                'type': 'patch',
+                                'file_path': args.get('file_path') or args.get('path'),
+                                'match_pattern': args.get('match_pattern'),
+                                'replace_pattern': args.get('replace_pattern'),
+                                'reason': args.get('reason')
                             })
-                        except json.JSONDecodeError as e:
-                            logger.error(
-                                "tool_call_parse_error",
-                                error=str(e),
-                                raw_args=tool_call.function.arguments[:500]
-                            )
-                    else:
-                        logger.warning(
-                            "unknown_tool_call",
-                            function_name=tool_call.function.name
-                        )
-            else:
-                logger.warning("no_tool_calls_in_response", content=message.content[:500] if message.content else None)
-            
-            logger.info("analysis_complete", total_changes=len(file_changes))
+                        except Exception:
+                            logger.error("tool_arg_parse_error", function="patch_file")
             
             result = {
                 'file_changes': file_changes,
-                'analysis': message.content or "AI suggested file changes via tool calls"
+                'analysis': message.content or "AI addressed PR feedback via tool calls"
             }
             
-            # Save to cache for future requests
             self._save_to_cache(cache_key, result)
-            
             return result
             
         except Exception as e:
-            logger.error("llm_call_failed", error=str(e), model=self.model)
+            logger.error("llm_call_failed", error=str(e))
             raise
     
     def fix_test_failures(self, original_changes, error_logs, codebase_files=None):
@@ -384,16 +589,16 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
                                 "type": "string",
                                 "description": "The path to the file to edit"
                             },
-                            "new_content": {
-                                "type": "string",
-                                "description": "The complete new content for the file"
-                            },
                             "reason": {
                                 "type": "string",
                                 "description": "Explanation of the fix"
+                            },
+                            "new_content": {
+                                "type": "string",
+                                "description": "The complete new content for the file"
                             }
                         },
-                        "required": ["file_path", "new_content", "reason"]
+                        "required": ["file_path", "reason", "new_content"]
                     }
                 }
             }
@@ -462,7 +667,8 @@ Analyze the errors and provide fixed versions of the files using edit_file."""
                     if tool_call.function.name == "edit_file":
                         try:
                             args = json.loads(tool_call.function.arguments)
-                            file_path = args.get('file_path')
+                            # Some models use 'path' instead of 'file_path'
+                            file_path = args.get('file_path') or args.get('path')
                             reason = args.get('reason', 'Fix test failure')
                             new_content = args.get('new_content', '')
                             

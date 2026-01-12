@@ -34,7 +34,7 @@ class User(Base):
     image = Column(String, nullable=True)
     createdAt = Column(DateTime, default=datetime.utcnow, nullable=False)
     updatedAt = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    selectedModel = Column(String, nullable=True, default='anthropic/claude-sonnet-4')
+    selectedModel = Column(String, nullable=True, default='anthropic/claude-3.5-sonnet')
     customRules = Column(Text, nullable=True)
     
     # Relationships
