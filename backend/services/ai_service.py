@@ -178,6 +178,25 @@ class AIService:
                     }
                 }
             })
+
+        # Add screenshot tool
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "take_screenshot",
+                "description": "Take a screenshot of a URL to verify UI changes or show the user the current state.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "The URL to capture (e.g., http://localhost:3000)"
+                        }
+                    },
+                    "required": ["url"]
+                }
+            }
+        })
         
         system_prompt = """You are an expert software engineer. Analyze the GitHub issue and suggest code changes.
 
@@ -200,6 +219,10 @@ TOOLS:
    - Run shell commands to check file structure, grep for patterns, or run tests.
    - Use this to gather more information if the provided context is insufficient.
    - NOTE: This runs in a sandbox.
+
+4. **take_screenshot** - For UI VERIFICATION:
+   - Capture a screenshot of the running application to verify visual changes.
+   - Useful for frontend tasks to verify the UI.
 
 Rules:
 1. PREFER patch_file for targeted changes - it's safer and more precise
@@ -319,6 +342,49 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
                             "name": "exec",
                             "content": output
                         })
+
+                    elif tool_call.function.name == "take_screenshot":
+                        try:
+                            args = json.loads(tool_call.function.arguments)
+                            url = args.get('url')
+
+                            from services.screenshot_service import ScreenshotService
+                            screenshot_service = ScreenshotService()
+
+                            if not screenshot_service.is_available():
+                                output = "Error: Screenshot service is not available (missing dependencies or config)."
+                            else:
+                                screenshot_url = screenshot_service.take_screenshot(url)
+                                if screenshot_url:
+                                    output = f"Screenshot taken: {screenshot_url}"
+                                    # Log to DB so frontend sees it
+                                    if job_id:
+                                        from services import db
+                                        db.insert_job_log({
+                                            'job_id': job_id,
+                                            'role': 'tool',
+                                            'type': 'screenshot',
+                                            'content': screenshot_url,
+                                            'metadata': {'url': url}
+                                        })
+                                else:
+                                    output = "Error: Failed to take screenshot."
+
+                            tool_outputs.append({
+                                "tool_call_id": tool_call.id,
+                                "role": "tool",
+                                "name": "take_screenshot",
+                                "content": output
+                            })
+
+                        except Exception as e:
+                            logger.error("tool_arg_parse_error", error=str(e))
+                            tool_outputs.append({
+                                "tool_call_id": tool_call.id,
+                                "role": "tool",
+                                "name": "take_screenshot",
+                                "content": f"Error: {str(e)}"
+                            })
                         
                     elif tool_call.function.name == "edit_file":
                         # This is a final action

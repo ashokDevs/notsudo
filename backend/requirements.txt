@@ -19,3 +19,4 @@ rq>=1.16.2
 flask-socketio>=5.5.1
 gevent>=24.2.1
 gevent-websocket>=0.10.1
+playwright>=1.40.0
