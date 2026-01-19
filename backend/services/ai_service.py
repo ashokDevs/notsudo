@@ -75,7 +75,7 @@ class AIService:
         except IOError as e:
             logger.warning("llm_cache_save_failed", error=str(e))
         
-    def analyze_issue_and_plan_changes(self, issue_title, issue_body, comment_body, codebase_files, custom_rules=None, repo_url=None, code_execution_service=None, job_id=None):
+    def analyze_issue_and_plan_changes(self, issue_title, issue_body, comment_body, codebase_files, codebase_memory=None, custom_rules=None, repo_url=None, code_execution_service=None, job_id=None):
         logger.info(
             "analyzing_issue",
             issue_title=issue_title,
@@ -230,6 +230,10 @@ Rules:
 3. Make minimal, focused changes that directly address the issue
 4. Maintain code style and conventions from the existing codebase
 5. You can use 'exec' to verify your understanding before proposing changes."""
+
+        # Add codebase memory if provided
+        if codebase_memory:
+            system_prompt += f"\n\nRepository Context & Memory:\n{json.dumps(codebase_memory, indent=2)}"
 
         # Add custom rules if provided
         if custom_rules and custom_rules.strip():
@@ -461,7 +465,7 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
         }
 
 
-    def analyze_pr_comment(self, pr_title, pr_body, comment_body, codebase_files, custom_rules=None, job_id=None):
+    def analyze_pr_comment(self, pr_title, pr_body, comment_body, codebase_files, codebase_memory=None, custom_rules=None, job_id=None):
         logger.info(
             "analyzing_pr_comment",
             pr_title=pr_title,
@@ -471,7 +475,7 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
         
         # Check cache first
         cache_key = self._get_cache_key(
-            'analyze_pr', pr_title, pr_body, comment_body,
+            'analyze_pr', pr_title, pr_body, comment_body, codebase_memory,
             [(f['path'], f['content'][:500]) for f in codebase_files]
         )
         cached = self._get_cached_response(cache_key)
@@ -591,6 +595,10 @@ Rules:
 3. Use edit_file only when patch_file cannot express the change.
 4. Make minimal, focused changes that directly address the feedback.
 5. Maintain code style and conventions from the existing codebase."""
+
+        # Add codebase memory if provided
+        if codebase_memory:
+            system_prompt += f"\n\nRepository Context & Memory:\n{json.dumps(codebase_memory, indent=2)}"
 
         # Add custom rules if provided
         if custom_rules and custom_rules.strip():

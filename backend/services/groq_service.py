@@ -133,7 +133,7 @@ Rules:
             # Fallback
             return f"{issue_number}-ai-fix"
 
-    def analyze_issue_and_plan_changes(self, issue_title, issue_body, comment_body, codebase_files, custom_rules=None, repo_url=None, code_execution_service=None, job_id=None):
+    def analyze_issue_and_plan_changes(self, issue_title, issue_body, comment_body, codebase_files, codebase_memory=None, custom_rules=None, repo_url=None, code_execution_service=None, job_id=None):
         """
         Analyze a GitHub issue and plan code changes using tool calling.
         
@@ -142,6 +142,7 @@ Rules:
             issue_body: Body/description of the issue
             comment_body: User comment triggering the analysis
             codebase_files: List of dicts with 'path' and 'content' keys
+            codebase_memory: Memory/Context for the repository
             
         Returns:
             Dict with 'file_changes' list and 'analysis' string
@@ -159,6 +160,7 @@ Rules:
                                        issue_body=issue_body,
                                        comment_body=comment_body,
                                        codebase_files=codebase_files,
+                                       codebase_memory=codebase_memory,
                                        custom_rules=custom_rules,
                                        repo_url=repo_url)
         if cache_key in self._cache:
@@ -253,6 +255,10 @@ Rules for using the edit_file tool:
 9. The new_content must be a drop-in replacement for the entire original file
 
 Always respond by calling the edit_file tool."""
+
+        # Add codebase memory if provided
+        if codebase_memory:
+            system_prompt += f"\n\nRepository Context & Memory:\n{json.dumps(codebase_memory, indent=2)}"
 
         # Add custom rules if provided
         if custom_rules and custom_rules.strip():
@@ -450,6 +456,25 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
         # If we exhausted retries without success
         if last_error:
             raise last_error
+
+    def analyze_pr_comment(self, pr_title, pr_body, comment_body, codebase_files, codebase_memory=None, custom_rules=None, job_id=None):
+        """Analyze PR comment (Stubbed for GroqService)."""
+        # Implement full logic similar to analyze_issue_and_plan_changes if needed.
+        # For now, reusing analyze_issue_and_plan_changes logic or providing a simplified version.
+        # Since analyze_issue_and_plan_changes is generic, we can adapt it.
+
+        logger.info("analyzing_pr_comment_groq", pr_title=pr_title)
+
+        # We'll map PR fields to issue fields for the prompt
+        return self.analyze_issue_and_plan_changes(
+            issue_title=f"PR: {pr_title}",
+            issue_body=pr_body,
+            comment_body=comment_body,
+            codebase_files=codebase_files,
+            codebase_memory=codebase_memory,
+            custom_rules=custom_rules,
+            job_id=job_id
+        )
     
     def fix_test_failures(self, original_changes, error_logs, codebase_files=None, job_id=None):
         """

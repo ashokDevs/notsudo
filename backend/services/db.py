@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine, func, text
 from sqlalchemy.orm import sessionmaker, Session
 
-from services.models import Base, User, Repository, Job, Issue, JobLog, Subscription
+from services.models import Base, User, Repository, Job, Issue, JobLog, Subscription, CodebaseMemory
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -742,3 +742,68 @@ def delete_user_data(user_id: str) -> bool:
         logger.error("delete_user_data_failed", error=str(e), user_id=user_id)
         return False
 
+
+# ======================
+# Codebase Memory CRUD
+# ======================
+
+def get_codebase_memory(repository_id: str) -> Optional[Dict[str, Any]]:
+    """Get memory for a repository."""
+    try:
+        with get_db_session() as session:
+            if session is None:
+                return None
+            memory = session.query(CodebaseMemory).filter(
+                CodebaseMemory.repository_id == repository_id
+            ).first()
+            return codebase_memory_to_dict(memory) if memory else None
+    except Exception as e:
+        logger.error("get_codebase_memory_failed", error=str(e), repository_id=repository_id)
+        return None
+
+
+def insert_or_update_codebase_memory(repository_id: str, memory_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Insert or update codebase memory."""
+    try:
+        with get_db_session() as session:
+            if session is None:
+                return None
+
+            import uuid
+
+            existing = session.query(CodebaseMemory).filter(
+                CodebaseMemory.repository_id == repository_id
+            ).first()
+
+            if existing:
+                # Update existing
+                existing.memory = memory_data
+                existing.updated_at = datetime.utcnow()
+                memory = existing
+            else:
+                # Insert new
+                memory_id = str(uuid.uuid4())
+                memory = CodebaseMemory(
+                    id=memory_id,
+                    repository_id=repository_id,
+                    memory=memory_data
+                )
+                session.add(memory)
+
+            session.flush()
+            logger.info("codebase_memory_saved", repository_id=repository_id)
+            return codebase_memory_to_dict(memory)
+    except Exception as e:
+        logger.error("insert_or_update_codebase_memory_failed", error=str(e))
+        return None
+
+
+def codebase_memory_to_dict(memory: CodebaseMemory) -> Dict[str, Any]:
+    """Convert CodebaseMemory model to dictionary."""
+    return {
+        'id': memory.id,
+        'repositoryId': memory.repository_id,
+        'memory': memory.memory,
+        'createdAt': memory.created_at.isoformat() if memory.created_at else None,
+        'updatedAt': memory.updated_at.isoformat() if memory.updated_at else None,
+    }
