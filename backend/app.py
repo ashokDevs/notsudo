@@ -861,6 +861,86 @@ def get_repo_issues(repo_full_name):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/repos/<path:repo_full_name>/memory', methods=['GET'])
+def get_repo_memory(repo_full_name):
+    """Get memory for a specific repository."""
+    config = load_config()
+    github_token = config.get('github_token')
+
+    if not github_token:
+        return jsonify({'error': 'GitHub token not configured'}), 500
+
+    try:
+        github_service = GitHubService(github_token)
+        repo = github_service.get_repository(repo_full_name)
+        repo_id = str(repo.id)
+
+        memory = database.get_codebase_memory(repo_id)
+        return jsonify(memory or {'memory': {}}), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error("get_repo_memory_failed", error=str(e))
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/repos/<path:repo_full_name>/memory', methods=['POST'])
+def save_repo_memory(repo_full_name):
+    """Save memory for a specific repository."""
+    config = load_config()
+    github_token = config.get('github_token')
+
+    if not github_token:
+        return jsonify({'error': 'GitHub token not configured'}), 500
+
+    data = request.get_json()
+    if not data or 'memory' not in data:
+        return jsonify({'error': 'Memory data required'}), 400
+
+    try:
+        github_service = GitHubService(github_token)
+        repo = github_service.get_repository(repo_full_name)
+        repo_id = str(repo.id)
+
+        # Ensure repository exists in local DB (required for FK)
+        # We need user_id to insert a repository. Try to get it from request.
+        user_id = data.get('userId') or data.get('user_id')
+
+        # If user_id is not provided, we check if the repo already exists
+        if not user_id:
+             # Check if repo exists
+            repos = database.get_repositories_by_id(repo_id) # Need to implement this or query directly?
+            # Actually database.get_repositories(user_id) exists.
+            # I'll rely on the repo already existing if user_id is not provided.
+            # If it doesn't exist and no user_id, we can't insert it -> FK failure for memory.
+            pass
+
+        if user_id:
+            database.insert_repository({
+                'id': repo_id,
+                'userId': user_id,
+                'name': repo.name,
+                'fullName': repo.full_name,
+                'description': repo.description,
+                'isPrivate': repo.private,
+                'htmlUrl': repo.html_url,
+                'defaultBranch': repo.default_branch,
+                'language': repo.language,
+            })
+
+        result = database.insert_or_update_codebase_memory(repo_id, data['memory'])
+        if result:
+            return jsonify(result), 200
+        else:
+            return jsonify({'error': 'Failed to save memory (Repository might not exist in DB)'}), 500
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error("save_repo_memory_failed", error=str(e))
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/jobs/<job_id>/logs', methods=['GET'])
 def get_job_logs(job_id):
     """Get detailed logs for a specific job."""

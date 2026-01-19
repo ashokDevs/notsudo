@@ -116,10 +116,38 @@ class Repository(Base):
     user = relationship("User", back_populates="repositories")
     jobs = relationship("Job", back_populates="repository")
     issues = relationship("Issue", back_populates="repository")
+    memories = relationship("CodebaseMemory", back_populates="repository", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index('repository_user_id_idx', 'user_id'),
         Index('repository_full_name_idx', 'full_name'),
+    )
+
+
+class CodebaseMemory(Base):
+    """Codebase Memory - stores context, commands, and insights per repository."""
+    __tablename__ = 'codebase_memory'
+
+    id = Column(String, primary_key=True)
+    repository_id = Column(String, ForeignKey('repository.id', ondelete='CASCADE'), nullable=False)
+
+    # Stores the actual memory content, e.g.
+    # {
+    #   "tech_stack": ["Python", "Flask", "Next.js"],
+    #   "commands": {"test": "pytest", "run": "python app.py"},
+    #   "features": ["auth", "payments"],
+    #   "notes": "..."
+    # }
+    memory = Column(JSON, default={})
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationships
+    repository = relationship("Repository", back_populates="memories")
+
+    __table_args__ = (
+        Index('codebase_memory_repository_id_idx', 'repository_id'),
     )
 
 
