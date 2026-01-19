@@ -7,6 +7,7 @@ import { ArrowLeft, FileCode, Clock, Terminal, MessageSquare, Cpu, Zap, Shield, 
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import { cn } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
+import { getSocket } from '@/lib/socket';
 
 interface JobLogEntry {
   id: string;
@@ -78,11 +79,59 @@ export default function JobDetailPage() {
     };
 
     fetchLogs();
-    const interval = setInterval(fetchLogs, 5000); 
+
+    // Setup Socket.IO
+    const socket = getSocket();
+    
+    socket.emit('join_job', { jobId });
+
+    socket.on('job_log', (data: { jobId: string; entry: JobLogEntry }) => {
+      if (data.jobId === jobId) {
+        setLogs(prev => {
+          // Prevent duplicates
+          if (prev.some(l => l.id === data.entry.id)) return prev;
+          return [...prev, data.entry];
+        });
+
+        // Update file changes if it's a file_change
+        const log = data.entry;
+        if ((log.type === 'file_change' || log.metadata?.file_path) && log.metadata?.new_content) {
+          const path = log.metadata.file_path;
+          setFileChanges(prev => {
+            const index = prev.findIndex(f => f.path === path);
+            const newChange = {
+              path,
+              content: log.metadata.new_content,
+              reason: log.content,
+              timestamp: log.createdAt
+            };
+            
+            if (index !== -1) {
+              const updated = [...prev];
+              updated[index] = newChange;
+              return updated;
+            } else {
+              if (!selectedFile) setSelectedFile(path);
+              return [...prev, newChange];
+            }
+          });
+        }
+      }
+    });
+
+    socket.on('job_status', (data: { jobId: string; status: string; stage?: string }) => {
+      if (data.jobId === jobId) {
+        // We might want to update some local state for status/stage here if we had it
+        // For now, it's just reflected in logs, but we could add status state if needed.
+        console.log('Job status updated:', data);
+      }
+    });
     
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      socket.emit('leave_job', { jobId });
+      socket.off('job_log');
+      socket.off('job_status');
     };
   }, [jobId, selectedFile]);
 

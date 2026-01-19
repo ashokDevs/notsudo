@@ -75,7 +75,7 @@ class AIService:
         except IOError as e:
             logger.warning("llm_cache_save_failed", error=str(e))
         
-    def analyze_issue_and_plan_changes(self, issue_title, issue_body, comment_body, codebase_files, custom_rules=None, repo_url=None, code_execution_service=None):
+    def analyze_issue_and_plan_changes(self, issue_title, issue_body, comment_body, codebase_files, custom_rules=None, repo_url=None, code_execution_service=None, job_id=None):
         logger.info(
             "analyzing_issue",
             issue_title=issue_title,
@@ -230,6 +230,16 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
             {"role": "user", "content": user_prompt}
         ]
         
+        if job_id:
+            from services import db
+            db.insert_job_log({
+                'job_id': job_id,
+                'role': 'user',
+                'type': 'message',
+                'content': f"**Issue Analysis Request (OpenRouter)**\n\n**Title:** {issue_title}\n\n**Body:**\n{issue_body}\n\n**Comment:**\n{comment_body}",
+                'metadata': {'file_count': len(codebase_files), 'model': self.model}
+            })
+        
         MAX_TURNS = 5
         current_turn = 0
         
@@ -247,6 +257,16 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
                 
                 message = response.choices[0].message
                 messages.append(message)
+                
+                if job_id and message.content:
+                    from services import db
+                    db.insert_job_log({
+                        'job_id': job_id,
+                        'role': 'assistant',
+                        'type': 'message',
+                        'content': message.content,
+                        'metadata': {'model': self.model, 'turn': current_turn}
+                    })
                 
                 # Check for tool calls
                 if not message.tool_calls:
@@ -311,12 +331,25 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
                             if new_content:
                                 new_content = new_content.replace('\\n', '\n').replace('\\r\\n', '\n').replace('\\r', '\n')
                             
-                            file_changes.append({
-                                'type': 'edit',
-                                'file_path': file_path,
-                                'new_content': new_content,
-                                'reason': reason
-                            })
+                                file_changes.append({
+                                    'type': 'edit',
+                                    'file_path': file_path,
+                                    'new_content': new_content,
+                                    'reason': reason
+                                })
+
+                                if job_id:
+                                    from services import db
+                                    db.insert_job_log({
+                                        'job_id': job_id,
+                                        'role': 'assistant',
+                                        'type': 'file_change',
+                                        'content': reason or f"Editing {file_path}",
+                                        'metadata': {
+                                            'file_path': file_path,
+                                            'new_content': new_content
+                                        }
+                                    })
                         except Exception as e:
                             logger.error("tool_arg_parse_error", error=str(e))
                             
@@ -362,7 +395,7 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
         }
 
 
-    def analyze_pr_comment(self, pr_title, pr_body, comment_body, codebase_files, custom_rules=None):
+    def analyze_pr_comment(self, pr_title, pr_body, comment_body, codebase_files, custom_rules=None, job_id=None):
         logger.info(
             "analyzing_pr_comment",
             pr_title=pr_title,
@@ -524,6 +557,16 @@ Analyze the comment and update the code to address the feedback. Use the availab
             
             message = response.choices[0].message
             
+            if job_id and message.content:
+                from services import db
+                db.insert_job_log({
+                    'job_id': job_id,
+                    'role': 'assistant',
+                    'type': 'message',
+                    'content': message.content,
+                    'metadata': {'model': self.model, 'action': 'pr_feedback'}
+                })
+
             file_changes = []
             if message.tool_calls:
                 for tool_call in message.tool_calls:
@@ -568,7 +611,7 @@ Analyze the comment and update the code to address the feedback. Use the availab
             logger.error("llm_call_failed", error=str(e))
             raise
     
-    def fix_test_failures(self, original_changes, error_logs, codebase_files=None):
+    def fix_test_failures(self, original_changes, error_logs, codebase_files=None, job_id=None):
         """Analyze test failures and suggest fixes."""
         logger.info(
             "fixing_test_failures",

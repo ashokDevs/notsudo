@@ -93,3 +93,15 @@ def enqueue_job(func, *args, **kwargs):
     except Exception as e:
         logger.error("enqueue_job_failed", func=func.__name__, error=str(e))
         return None
+
+def get_all_job_ids():
+    """
+    Get all job IDs stored in Redis by scanning for 'job:*' keys.
+    """
+    try:
+        keys = redis_client.keys("job:*")
+        return [key.decode('utf-8').split(":", 1)[1] for key in keys]
+    except Exception as e:
+        logger.error("get_all_job_ids_failed", error=str(e))
+        return []
+

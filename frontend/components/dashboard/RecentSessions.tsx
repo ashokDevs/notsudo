@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { Terminal, Clock, CheckCircle2, AlertCircle, Loader2, Github, MoreHorizontal, Play } from "lucide-react";
 import Link from "next/link";
+import { useSession } from "@/lib/auth-client";
+import { getSocket } from "@/lib/socket";
 
 interface Job {
   id: string;
@@ -17,12 +19,15 @@ interface Job {
 export default function RecentSessions() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+  const { data: session } = useSession();
+  const userId = session?.user?.id;
 
   const fetchJobs = async () => {
+    if (!userId) return;
     try {
-      const res = await fetch("/api/jobs");
+      const res = await fetch(`/api/jobs?user_id=${userId}`);
       const data = await res.json();
-      setJobs(Array.isArray(data) ? data.slice(0, 5) : []);
+      setJobs(Array.isArray(data) ? data.slice(0, 5) : (data.jobs ? data.jobs.slice(0, 5) : []));
     } catch (err) {
       console.error("Failed to fetch jobs", err);
     } finally {
@@ -31,10 +36,32 @@ export default function RecentSessions() {
   };
 
   useEffect(() => {
-    fetchJobs();
-    const interval = setInterval(fetchJobs, 10000);
-    return () => clearInterval(interval);
-  }, []);
+    if (userId) {
+      fetchJobs();
+
+      const socket = getSocket();
+      
+      socket.emit('join_user', { userId });
+
+      socket.on('job_created', (newJob: Job) => {
+        setJobs(prev => {
+          // Add to top and truncate to 5
+          const updated = [newJob, ...prev];
+          return updated.slice(0, 5);
+        });
+      });
+
+      socket.on('job_updated', (updatedJob: Job) => {
+        setJobs(prev => prev.map(j => j.id === updatedJob.id ? { ...j, ...updatedJob } : j));
+      });
+
+      return () => {
+        socket.emit('leave_user', { userId });
+        socket.off('job_created');
+        socket.off('job_updated');
+      };
+    }
+  }, [userId]);
 
   const getStatusBadge = (status: Job["status"]) => {
     switch (status) {
@@ -86,7 +113,7 @@ export default function RecentSessions() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-sm font-medium text-zinc-100 truncate mb-1">
-                    {job.issueTitle}
+                    {job.issueTitle || job.id}
                   </h3>
                   <div className="flex items-center gap-3">
                     {getStatusBadge(job.status)}

@@ -1,3 +1,5 @@
+from gevent import monkey
+monkey.patch_all()
 import os
 from rq import Worker, Queue
 from redis import from_url

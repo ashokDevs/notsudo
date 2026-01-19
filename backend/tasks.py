@@ -34,9 +34,9 @@ def save_job(job):
     # Fallback logs if DB is not available
     logger.info("job_saved_without_db", job_id=job.get('id'), status=job.get('status'))
 
-def process_webhook_task(repo_full_name, issue_number, issue_title, issue_body, comment_body, is_pr, job_id, github_token, config):
+def process_webhook_task(repo_full_name, issue_number, issue_title, issue_body, comment_body, is_pr, current_job_id, github_token, config):
     job = {
-        'id': job_id,
+        'id': current_job_id,
         'repo': repo_full_name,
         'issueNumber': issue_number,
         'issueTitle': issue_title,
@@ -62,7 +62,7 @@ def process_webhook_task(repo_full_name, issue_number, issue_title, issue_body, 
                 repo_full_name=repo_full_name,
                 pr_number=issue_number,
                 comment_body=comment_body,
-                job_id=job_id
+                job_id=current_job_id
             )
         else:
             job['logs'].append('AI analyzing issue...')
@@ -73,7 +73,7 @@ def process_webhook_task(repo_full_name, issue_number, issue_title, issue_body, 
                 issue_title=issue_title,
                 issue_body=issue_body,
                 comment_body=comment_body,
-                job_id=job_id
+                job_id=current_job_id
             )
         
         job['status'] = 'completed' if result.get('success') else 'failed'
@@ -87,7 +87,7 @@ def process_webhook_task(repo_full_name, issue_number, issue_title, issue_body, 
         return result
         
     except Exception as e:
-        logger.error("webhook_task_failed", error=str(e), job_id=job_id)
+        logger.error("webhook_task_failed", error=str(e), job_id=current_job_id)
         job['status'] = 'failed'
         job['completedAt'] = datetime.now().isoformat()
         job['stage'] = 'error'
@@ -96,9 +96,9 @@ def process_webhook_task(repo_full_name, issue_number, issue_title, issue_body, 
         save_job(job)
         return {'success': False, 'message': str(e)}
 
-def process_manual_task(repo_full_name, prompt, user_id, job_id, github_token, config):
+def process_manual_task(repo_full_name, prompt, user_id, current_job_id, github_token, config):
     job = {
-        'id': job_id,
+        'id': current_job_id,
         'user_id': user_id,
         'repo': repo_full_name,
         'issueNumber': None,
@@ -123,7 +123,7 @@ def process_manual_task(repo_full_name, prompt, user_id, job_id, github_token, c
             repo_full_name=repo_full_name,
             prompt=prompt,
             user_id=user_id,
-            job_id=job_id
+            job_id=current_job_id
         )
         
         job['status'] = 'completed' if result.get('success') else 'failed'
@@ -137,7 +137,7 @@ def process_manual_task(repo_full_name, prompt, user_id, job_id, github_token, c
         return result
         
     except Exception as e:
-        logger.error("manual_task_failed", error=str(e), job_id=job_id)
+        logger.error("manual_task_failed", error=str(e), job_id=current_job_id)
         job['status'] = 'failed'
         job['stage'] = 'error'
         job['error'] = str(e)

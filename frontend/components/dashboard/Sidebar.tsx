@@ -16,6 +16,7 @@ import {
   AlertCircle
 } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
+import { getSocket } from "@/lib/socket";
 import Link from "next/link";
 
 const navItems = [
@@ -85,9 +86,31 @@ export function Sidebar({ isMobileOpen, setIsMobileOpen, isCollapsed, setIsColla
 
 
   useEffect(() => {
-    fetchJobs();
-    const interval = setInterval(fetchJobs, 15000);
-    return () => clearInterval(interval);
+    if (userId) {
+      fetchJobs();
+
+      const socket = getSocket();
+      
+      socket.emit('join_user', { userId });
+
+      socket.on('job_created', (newJob: Job) => {
+        setJobs(prev => {
+          // Add to top and truncate to 10
+          const updated = [newJob, ...prev];
+          return updated.slice(0, 10);
+        });
+      });
+
+      socket.on('job_updated', (updatedJob: Job) => {
+        setJobs(prev => prev.map(j => j.id === updatedJob.id ? { ...j, ...updatedJob } : j));
+      });
+
+      return () => {
+        socket.emit('leave_user', { userId });
+        socket.off('job_created');
+        socket.off('job_updated');
+      };
+    }
   }, [userId]);
 
   const filteredJobs = useMemo(() => {
@@ -224,7 +247,7 @@ export function Sidebar({ isMobileOpen, setIsMobileOpen, isCollapsed, setIsColla
                     ) : getStatusIcon(job.status)}
                   </div>
                   <span className="text-sm text-zinc-400 group-hover:text-zinc-200 truncate transition-colors">
-                    {job.issueTitle || job.issueNumber}
+                    {job.issueTitle || job.issueNumber || job.id}
                   </span>
                 </Link>
               ))}

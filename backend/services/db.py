@@ -133,8 +133,17 @@ def insert_job(job_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             )
             session.add(job)
             session.flush()
+            
+            result = job_to_dict(job)
+            
+            # Emit socket event to user room
+            from services.socket_service import socketio
+            user_id = result.get('userId') or result.get('user_id')
+            if user_id:
+                socketio.emit('job_created', result, room=f"user_{user_id}")
+            
             logger.info("job_inserted", job_id=job.id)
-            return job_to_dict(job)
+            return result
     except Exception as e:
         logger.error("insert_job_failed", error=str(e))
         return None
@@ -169,8 +178,20 @@ def update_job(job_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]
             
             job.updated_at = datetime.utcnow()
             session.flush()
+            
+            result = job_to_dict(job)
+            
+            # Emit socket event for status/stage updates
+            from services.socket_service import emit_job_status, socketio
+            emit_job_status(job_id, result.get('status'), result.get('stage'))
+            
+            # Also notify user room about job update
+            user_id = result.get('userId') or result.get('user_id')
+            if user_id:
+                socketio.emit('job_updated', result, room=f"user_{user_id}")
+            
             logger.info("job_updated", job_id=job_id)
-            return job_to_dict(job)
+            return result
     except Exception as e:
         logger.error("update_job_failed", error=str(e), job_id=job_id)
         return None
@@ -327,8 +348,14 @@ def insert_job_log(log_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             )
             session.add(log)
             session.flush()
-            # logger.debug("job_log_inserted", log_id=log.id, type=log.type)
-            return job_log_to_dict(log)
+            
+            result = job_log_to_dict(log)
+            
+            # Emit socket event for real-time updates
+            from services.socket_service import emit_job_update
+            emit_job_update(log.job_id, result)
+            
+            return result
     except Exception as e:
         logger.error("insert_job_log_failed", error=str(e))
         return None

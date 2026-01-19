@@ -14,6 +14,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { getSocket } from "@/lib/socket";
+import { useSession } from "@/lib/auth-client";
 
 interface Job {
   id: string;
@@ -31,6 +33,7 @@ interface Job {
 }
 
 export function JobsTable() {
+  const { data: session } = useSession();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
@@ -51,9 +54,28 @@ export function JobsTable() {
 
   useEffect(() => {
     fetchJobs();
-    const interval = setInterval(fetchJobs, 5000);
-    return () => clearInterval(interval);
-  }, []);
+
+    if (!session?.user?.id) return;
+
+    const socket = getSocket();
+    const userId = session.user.id;
+
+    socket.emit('join_user', { userId });
+
+    socket.on('job_created', (newJob: Job) => {
+      setJobs(prev => [newJob, ...prev]);
+    });
+
+    socket.on('job_updated', (updatedJob: Job) => {
+      setJobs(prev => prev.map(j => j.id === updatedJob.id ? { ...j, ...updatedJob } : j));
+    });
+
+    return () => {
+      socket.emit('leave_user', { userId });
+      socket.off('job_created');
+      socket.off('job_updated');
+    };
+  }, [session?.user?.id]);
 
   const calculateDuration = (start: string, end?: string) => {
     if (!end) return "Running...";

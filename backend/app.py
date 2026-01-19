@@ -1,3 +1,5 @@
+from gevent import monkey
+monkey.patch_all()
 import os
 import json
 import hmac
@@ -8,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_socketio import SocketIO, join_room, leave_room
 from dotenv import load_dotenv
 
 from services.groq_service import GroqService
@@ -15,7 +18,7 @@ from services.ai_service import AIService, AVAILABLE_MODELS, DEFAULT_MODEL
 from services.github_service import GitHubService
 from services.pr_service import PRService
 from services import db as database
-from services.redis_service import set_cache, get_cache, delete_cache, enqueue_job, set_job_cache, get_job_cache
+from services.redis_service import set_cache, get_cache, delete_cache, enqueue_job, set_job_cache, get_job_cache, get_all_job_ids
 import tasks
 from utils.logger import get_logger
 import requests as py_requests
@@ -27,6 +30,38 @@ load_dotenv(BASE_DIR / ".env")
 
 app = Flask(__name__)
 CORS(app)
+
+# Initialize SocketIO with Redis message queue for background task communication
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+socketio = SocketIO(app, cors_allowed_origins="*", message_queue=REDIS_URL)
+
+@socketio.on('join_job')
+def handle_join_job(data):
+    job_id = data.get('jobId')
+    if job_id:
+        join_room(job_id)
+        logger.info("socket_client_joined_job", job_id=job_id, sid=request.sid)
+
+@socketio.on('leave_job')
+def handle_leave_job(data):
+    job_id = data.get('jobId')
+    if job_id:
+        leave_room(job_id)
+        logger.info("socket_client_left_job", job_id=job_id, sid=request.sid)
+
+@socketio.on('join_user')
+def handle_join_user(data):
+    user_id = data.get('userId')
+    if user_id:
+        join_room(f"user_{user_id}")
+        logger.info("socket_client_joined_user", user_id=user_id, sid=request.sid)
+
+@socketio.on('leave_user')
+def handle_leave_user(data):
+    user_id = data.get('userId')
+    if user_id:
+        leave_room(f"user_{user_id}")
+        logger.info("socket_client_left_user", user_id=user_id, sid=request.sid)
 
 jobs_file = "/tmp/jobs.json"
 
@@ -66,11 +101,11 @@ def get_ai_service(config, user_model=None):
             raise ValueError("GROQ_API_KEY not configured")
         return GroqService(api_key=api_key)
 
-def load_jobs():
+def load_jobs(user_id=None):
     """Load jobs from database or fall back to JSON file, merging with Redis cache."""
     base_jobs = []
     if database.is_db_available():
-        base_jobs = database.get_jobs()
+        base_jobs = database.get_jobs(user_id=user_id)
     elif os.path.exists(jobs_file):
         # Fallback to JSON file
         try:
@@ -78,6 +113,13 @@ def load_jobs():
                 base_jobs = json.load(f)
         except Exception:
             base_jobs = []
+        
+        # Simple local filtering if DB not available
+        if user_id:
+            base_jobs = [j for j in base_jobs if (j.get('userId') == user_id or j.get('user_id') == user_id)]
+    
+    # Track which job IDs we already have
+    existing_job_ids = {job.get('id') for job in base_jobs if job.get('id')}
     
     # Merge with Redis cache for the most up-to-date status
     for i, job in enumerate(base_jobs):
@@ -87,6 +129,23 @@ def load_jobs():
             if cached_job:
                 # Update with cached data while preserving non-cached fields if any
                 base_jobs[i] = {**job, **cached_job}
+
+    # Add jobs from Redis that aren't in base_jobs (e.g. newly created or not yet persisted)
+    redis_job_ids = get_all_job_ids()
+    for job_id in redis_job_ids:
+        if job_id not in existing_job_ids:
+            cached_job = get_job_cache(job_id)
+            if cached_job:
+                # Filter by user_id if requested
+                if user_id:
+                    cached_user_id = cached_job.get('userId') or cached_job.get('user_id')
+                    # If job has a user_id and it doesn't match, skip it.
+                    # If it doesn't have a user_id, we might want to show it anyway (system jobs/webhooks)
+                    # but for now, let's be strict if they are in the user's dashboard.
+                    if cached_user_id and cached_user_id != user_id:
+                        continue
+                        
+                base_jobs.insert(0, cached_job)
                 
     return base_jobs
 
@@ -669,7 +728,7 @@ def test_issue():
         issue_body=issue_body,
         comment_body=comment_body,
         is_pr=is_pr,
-        job_id=job['id'],
+        current_job_id=job['id'],
         github_token=github_token,
         config=config
     )
@@ -683,7 +742,8 @@ def test_issue():
 
 @app.route('/api/jobs', methods=['GET'])
 def get_jobs():
-    jobs = load_jobs()
+    user_id = request.args.get('user_id')
+    jobs = load_jobs(user_id=user_id)
     return jsonify(jobs), 200
 
 
@@ -738,7 +798,7 @@ def create_manual_job():
         repo_full_name=repo_full_name,
         prompt=prompt,
         user_id=user_id,
-        job_id=job_id,
+        current_job_id=job_id,
         github_token=github_token,
         config=config
     )
@@ -1376,7 +1436,7 @@ def handle_issue_comment_from_app(data, action):
         issue_body=issue_body,
         comment_body=comment_body,
         is_pr='pull_request' in issue or bool(issue.get('pull_request')),
-        job_id=job['id'],
+        current_job_id=job['id'],
         github_token=github_token,
         config=load_config()
     )
@@ -1417,4 +1477,4 @@ def get_stats():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    socketio.run(app, host='0.0.0.0', port=8000, debug=True)

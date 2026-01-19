@@ -24,13 +24,6 @@ const nextConfig = {
         // Auth routes are handled by Better Auth in Next.js
         source: '/api/:path*',
         destination: 'http://localhost:8000/api/:path*',
-        has: [
-          {
-            type: 'header',
-            key: 'x-skip-auth-check',
-            value: undefined,
-          },
-        ],
       },
     ]
   },

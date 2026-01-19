@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { RepositoriesGrid } from "@/components/dashboard/RepositoriesGrid";
 import { useSession } from "@/lib/auth-client";
+import { getSocket } from "@/lib/socket";
 import { RefreshCw, ArrowLeft, ChevronDown, Trash2, MessageSquare, Settings, User } from "lucide-react";
 import Link from "next/link";
 
@@ -53,10 +54,20 @@ export default function RepositoriesPage() {
 
   useEffect(() => {
     if (!session?.user?.id) return;
-    const interval = setInterval(() => {
+    
+    const socket = getSocket();
+    const userId = session.user.id;
+    
+    socket.emit('join_user', { userId });
+    
+    socket.on('repos_updated', () => {
       fetchRepositories();
-    }, 30000);
-    return () => clearInterval(interval);
+    });
+    
+    return () => {
+      socket.emit('leave_user', { userId });
+      socket.off('repos_updated');
+    };
   }, [session?.user?.id, fetchRepositories]);
 
   useEffect(() => {
