@@ -1,10 +1,3 @@
-"""
-Database Module - SQLAlchemy ORM queries for CloudAgent.
-
-Single file for all database operations.
-Uses SQLAlchemy models defined in models.py.
-"""
-
 import os
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -18,13 +11,11 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Database engine and session factory
 _engine = None
 _SessionFactory = None
 
 
 def get_engine():
-    """Get or create database engine."""
     global _engine
     if _engine is None:
         database_url = os.environ.get('DATABASE_URL', '')
@@ -36,7 +27,6 @@ def get_engine():
 
 
 def get_session_factory():
-    """Get or create session factory."""
     global _SessionFactory
     if _SessionFactory is None:
         engine = get_engine()
@@ -47,7 +37,6 @@ def get_session_factory():
 
 @contextmanager
 def get_db_session():
-    """Context manager for database sessions."""
     factory = get_session_factory()
     if factory is None:
         yield None
@@ -66,7 +55,6 @@ def get_db_session():
 
 
 def init_db():
-    """Initialize database tables."""
     engine = get_engine()
     if engine:
         Base.metadata.create_all(bind=engine)
@@ -76,7 +64,6 @@ def init_db():
 
 
 def is_db_available() -> bool:
-    """Check if database is available."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -87,12 +74,7 @@ def is_db_available() -> bool:
         return False
 
 
-# ======================
-# Jobs CRUD
-# ======================
-
 def get_jobs(user_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
-    """Get jobs from database."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -111,7 +93,6 @@ def get_jobs(user_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, 
 
 
 def insert_job(job_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Insert a new job."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -150,7 +131,6 @@ def insert_job(job_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def update_job(job_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Update an existing job."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -198,7 +178,6 @@ def update_job(job_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]
 
 
 def get_job_by_id(job_id: str) -> Optional[Dict[str, Any]]:
-    """Get a single job by ID."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -218,18 +197,7 @@ def atomic_create_job_if_not_exists(
 ) -> Optional[Dict[str, Any]]:
     """
     Atomically create a job if no in-progress job exists for this issue.
-    
-    Uses a single database transaction to check and insert, preventing race conditions
-    when multiple webhook handlers receive the same event simultaneously.
-    
-    Args:
-        repo_full_name: Full name of the repository (owner/repo)
-        issue_number: Issue number being processed
-        job_data: Job data to insert if no duplicate exists
-        window_seconds: Time window to check for recent jobs
-        
-    Returns:
-        The created job dict if successful, None if a duplicate was found
+    Uses a single database transaction to prevent race conditions from duplicate webhooks.
     """
     try:
         with get_db_session() as session:
@@ -239,34 +207,25 @@ def atomic_create_job_if_not_exists(
             
             from datetime import timedelta
             from sqlalchemy import and_, or_
-            
+
             now = datetime.utcnow()
             window_start = now - timedelta(seconds=window_seconds)
-            # Stale job timeout - jobs processing for more than 10 minutes are considered stale
             stale_timeout = now - timedelta(minutes=10)
-            
-            # Check for any in-progress or recently created jobs for this issue
-            # The job ID format is: "{repo_full_name}-{issue_number}-{timestamp}"
             job_id_prefix = f"{repo_full_name}-{issue_number}-"
-            
-            # Only block if:
-            # 1. Job is in progress AND was created within the last 10 minutes (not stale)
-            # 2. OR job was created within the rate limit window (regardless of status)
+
             existing = session.query(Job).filter(
                 and_(
                     Job.id.like(f"{job_id_prefix}%"),
                     or_(
-                        # In-progress jobs that aren't stale
                         and_(
                             Job.status.in_(['processing', 'generating', 'analyzing']),
                             Job.created_at >= stale_timeout
                         ),
-                        # Rate limiting: any job created in the last minute
                         Job.created_at >= window_start
                     )
                 )
             ).first()
-            
+
             if existing:
                 logger.warning(
                     "atomic_create_job_duplicate_prevented",
@@ -276,8 +235,7 @@ def atomic_create_job_if_not_exists(
                     issue=issue_number
                 )
                 return None
-            
-            # No duplicate found, create the job
+
             job = Job(
                 id=job_data.get('id'),
                 user_id=job_data.get('userId') or job_data.get('user_id'),
@@ -304,7 +262,6 @@ def atomic_create_job_if_not_exists(
 
 
 def job_to_dict(job: Job) -> Dict[str, Any]:
-    """Convert Job model to dictionary."""
     return {
         'id': job.id,
         'userId': str(job.user_id) if job.user_id else None,
@@ -323,12 +280,7 @@ def job_to_dict(job: Job) -> Dict[str, Any]:
     }
 
 
-# ======================
-# Job Logs CRUD
-# ======================
-
 def insert_job_log(log_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Insert a new job log entry."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -362,7 +314,6 @@ def insert_job_log(log_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def get_job_logs(job_id: str) -> List[Dict[str, Any]]:
-    """Get logs for a specific job."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -379,7 +330,6 @@ def get_job_logs(job_id: str) -> List[Dict[str, Any]]:
 
 
 def job_log_to_dict(log: JobLog) -> Dict[str, Any]:
-    """Convert JobLog model to dictionary."""
     return {
         'id': log.id,
         'jobId': log.job_id,
@@ -391,12 +341,7 @@ def job_log_to_dict(log: JobLog) -> Dict[str, Any]:
     }
 
 
-# ======================
-# Repositories CRUD
-# ======================
-
 def get_repositories(user_id: str) -> List[Dict[str, Any]]:
-    """Get repositories for a user."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -411,7 +356,6 @@ def get_repositories(user_id: str) -> List[Dict[str, Any]]:
 
 
 def insert_repository(repo_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Insert or update a repository."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -453,7 +397,6 @@ def insert_repository(repo_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def repo_to_dict(repo: Repository) -> Dict[str, Any]:
-    """Convert Repository model to dictionary."""
     return {
         'id': repo.id,
         'userId': str(repo.user_id) if repo.user_id else None,
@@ -468,12 +411,7 @@ def repo_to_dict(repo: Repository) -> Dict[str, Any]:
     }
 
 
-# ======================
-# Issues CRUD
-# ======================
-
 def get_issues(user_id: Optional[str] = None, repository_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
-    """Get issues from database."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -494,7 +432,6 @@ def get_issues(user_id: Optional[str] = None, repository_id: Optional[str] = Non
 
 
 def insert_issue(issue_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Insert a new issue."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -520,7 +457,6 @@ def insert_issue(issue_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def get_issues_count(user_id: Optional[str] = None, repository_id: Optional[str] = None) -> int:
-    """Get count of issues."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -540,7 +476,6 @@ def get_issues_count(user_id: Optional[str] = None, repository_id: Optional[str]
 
 
 def issue_to_dict(issue: Issue) -> Dict[str, Any]:
-    """Convert Issue model to dictionary."""
     return {
         'id': issue.id,
         'githubId': issue.github_id,
@@ -556,12 +491,7 @@ def issue_to_dict(issue: Issue) -> Dict[str, Any]:
     }
 
 
-# ======================
-# Stats
-# ======================
-
 def get_stats(user_id: Optional[str] = None) -> Dict[str, Any]:
-    """Get aggregated statistics."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -598,12 +528,7 @@ def get_stats(user_id: Optional[str] = None) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
-# ======================
-# User AI Settings
-# ======================
-
 def get_user_ai_settings(user_id: str) -> Optional[Dict[str, Any]]:
-    """Get user's AI settings (selected model and custom rules)."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -621,7 +546,6 @@ def get_user_ai_settings(user_id: str) -> Optional[Dict[str, Any]]:
 
 
 def update_user_ai_settings(user_id: str, selected_model: Optional[str] = None, custom_rules: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Update user's AI settings."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -644,13 +568,9 @@ def update_user_ai_settings(user_id: str, selected_model: Optional[str] = None, 
     except Exception as e:
         logger.error("update_user_ai_settings_failed", error=str(e), user_id=user_id)
         return None
-        
-# ======================
-# Subscriptions CRUD
-# ======================
+
 
 def insert_subscription(sub_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Insert or update a subscription."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -686,7 +606,6 @@ def insert_subscription(sub_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
 def get_user_subscription(user_id: str) -> Optional[Dict[str, Any]]:
-    """Get active subscription for a user."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -700,7 +619,6 @@ def get_user_subscription(user_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 def subscription_to_dict(sub: Subscription) -> Dict[str, Any]:
-    """Convert Subscription model to dictionary."""
     return {
         'id': sub.id,
         'userId': sub.user_id,
@@ -713,22 +631,13 @@ def subscription_to_dict(sub: Subscription) -> Dict[str, Any]:
     }
 
 def delete_user_data(user_id: str) -> bool:
-    """
-    Delete a user and all related data (subscriptions, jobs, logs, repositories, etc.).
-    Uses cascaded deletes where configured, manual delete for others.
-    """
     try:
         with get_db_session() as session:
             if session is None:
                 return False
-                
-            # 1. Delete Issues associated with this user
+
             session.query(Issue).filter(Issue.user_id == user_id).delete()
-            
-            # 2. Delete Jobs associated with this user (JobLogs will be deleted by cascade)
             session.query(Job).filter(Job.user_id == user_id).delete()
-            
-            # 3. Delete the User (Cascades: Session, Account, Repository, Subscription, GitHubAppInstallation)
             user = session.query(User).filter(User.id == user_id).first()
             if user:
                 session.delete(user)
@@ -743,12 +652,7 @@ def delete_user_data(user_id: str) -> bool:
         return False
 
 
-# ======================
-# Codebase Memory CRUD
-# ======================
-
 def get_codebase_memory(repository_id: str) -> Optional[Dict[str, Any]]:
-    """Get memory for a repository."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -763,7 +667,6 @@ def get_codebase_memory(repository_id: str) -> Optional[Dict[str, Any]]:
 
 
 def insert_or_update_codebase_memory(repository_id: str, memory_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Insert or update codebase memory."""
     try:
         with get_db_session() as session:
             if session is None:
@@ -799,7 +702,6 @@ def insert_or_update_codebase_memory(repository_id: str, memory_data: Dict[str, 
 
 
 def codebase_memory_to_dict(memory: CodebaseMemory) -> Dict[str, Any]:
-    """Convert CodebaseMemory model to dictionary."""
     return {
         'id': memory.id,
         'repositoryId': memory.repository_id,

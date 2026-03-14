@@ -15,7 +15,6 @@ Sandbox modes:
 - Local Docker (development): Docker available
 - Local fallback: No Docker available
 """
-import logging
 import os
 import shutil
 import subprocess
@@ -29,69 +28,56 @@ from services.docker_sandbox import DockerSandboxService, ExecResult, DOCKER_AVA
 from services.formatter_detector import FormatterDetectorService, FormatterConfig
 from services.comby_service import CombyService, COMBY_AVAILABLE
 from services.security_scanner import SecurityScannerService, ScanResult, Severity
+from utils.logger import get_logger
 
-# Check if AWS sandbox is available
 try:
     from services.aws_sandbox import AWSSandboxService, BOTO3_AVAILABLE
 except ImportError:
     BOTO3_AVAILABLE = False
     AWSSandboxService = None
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-# Environment variable to enable AWS sandbox
 USE_AWS_SANDBOX = os.environ.get('USE_AWS_SANDBOX', 'false').lower() == 'true'
 
 
 @dataclass
 class SandboxSession:
-    """Represents a persistent sandbox session (container or task)."""
     id: str
-    type: str  # 'docker' or 'aws'
-    work_dir: str  # temp_dir on host
-    resource_id: str  # container_id or task_arn
+    type: str
+    work_dir: str
+    resource_id: str
     stack_config: Optional[StackConfig] = None
-    image_tag: Optional[str] = None  # Built image tag to cleanup later
-
+    image_tag: Optional[str] = None
 
 
 @dataclass
 class ExecutionResult:
-    """Result of the full code validation flow."""
     success: bool
-    stage: str  # 'clone', 'install', 'test', 'build', 'security', 'typecheck'
+    stage: str
     logs: list[str] = field(default_factory=list)
     error: Optional[str] = None
     exit_code: int = 0
-    formatted_file_changes: Optional[list[dict]] = None  # Updated file contents after formatting
-    security_issues: Optional[list[dict]] = None  # Security vulnerabilities found
-    typecheck_errors: Optional[str] = None  # Type checking errors for AI fixing
-    session: Optional[SandboxSession] = None  # Active session if keep_alive was requested
-    
+    formatted_file_changes: Optional[list[dict]] = None
+    security_issues: Optional[list[dict]] = None
+    typecheck_errors: Optional[str] = None
+    session: Optional[SandboxSession] = None
+
     def add_log(self, message: str):
         self.logs.append(message)
 
 
 @dataclass
 class FileChange:
-    """Represents a file change to apply."""
     file_path: str
-    new_content: str = ''  # For edit type
+    new_content: str = ''
     reason: str = ''
-    type: str = 'edit'  # 'edit' or 'patch'
-    match_pattern: str = ''  # For patch type
-    replace_pattern: str = ''  # For patch type
+    type: str = 'edit'
+    match_pattern: str = ''
+    replace_pattern: str = ''
 
 
 class CodeExecutionService:
-    """Orchestrates the full code validation flow.
-    
-    Supports three modes:
-    1. AWS Fargate (production) - Set USE_AWS_SANDBOX=true
-    2. Local Docker (development) - Docker Desktop running
-    3. Local fallback - No Docker, runs commands directly
-    """
-    
     def __init__(
         self,
         stack_detector: Optional[StackDetectorService] = None,
@@ -108,10 +94,7 @@ class CodeExecutionService:
         self.aws_sandbox = aws_sandbox
         self.use_aws = False
         
-        # DEV_MODE forces local Docker instead of AWS Fargate
         dev_mode = os.environ.get('DEV_MODE', 'false').lower() == 'true'
-        
-        # Check which sandbox to use
         if not dev_mode and USE_AWS_SANDBOX and BOTO3_AVAILABLE:
             # Production: Use AWS Fargate
             if self.aws_sandbox is None:
@@ -126,8 +109,6 @@ class CodeExecutionService:
                     logger.warning(f"AWS sandbox not available: {e}")
         elif dev_mode:
             logger.info("DEV_MODE enabled - using local Docker instead of AWS Fargate")
-        
-        # Fallback to local Docker
         if not self.use_aws and self.docker_sandbox is None and DOCKER_AVAILABLE:
             try:
                 self.docker_sandbox = DockerSandboxService()
@@ -145,51 +126,30 @@ class CodeExecutionService:
         session: Optional[SandboxSession] = None,
         keep_alive: bool = False
     ) -> ExecutionResult:
-        """
-        Validate code changes in a Docker sandbox.
-        
-        Args:
-            repo_url: Git URL to clone
-            branch: Branch name containing the changes
-            file_changes: List of file changes to apply
-            run_tests: Whether to run tests
-            run_build: Whether to run build command
-            session: Existing sandbox session to reuse (skips clone/setup if valid)
-            keep_alive: Whether to keep the session active after validation
-            
-        Returns:
-            ExecutionResult with success status and logs
-        """
         result = ExecutionResult(success=False, stage='init')
         temp_dir = None
         container = None
         built_image = None
         stack_config = None
         
-        # Reuse session if provided
         if session:
             result.add_log(f"Reusing existing sandbox session: {session.id}")
             temp_dir = session.work_dir
             stack_config = session.stack_config
             built_image = session.image_tag
             
-            # TODO: Verify container is still alive
             if session.type == 'docker':
-                # Convert string ID back to container object (simulated)
                 if self.docker_sandbox:
                     try:
                         container = self.docker_sandbox.client.containers.get(session.resource_id)
                         result.add_log(f"Connected to active container: {container.short_id}")
                     except Exception as e:
                         result.add_log(f"Failed to reconnect to container {session.resource_id}: {e}")
-                        # Fallback: Create new container, but reuse directory
                         container = None
             elif session.type == 'aws':
-                # Support AWS persistence if implemented
                 pass
         
         try:
-            # Step 1: Clone or Prepare Repository
             if not session or not temp_dir:
                 result.stage = 'clone'
                 temp_dir = tempfile.mkdtemp(prefix='sandbox-')
@@ -201,9 +161,6 @@ class CodeExecutionService:
                     return result
                 result.add_log("Repository cloned successfully")
             else:
-                # If reusing session, we might want to reset the repo state to clean
-                # But typically we just apply new changes on top.
-                # Ideally, we should 'git checkout .' to discard uncommitted changes from previous failed run
                 try:
                     subprocess.run(
                         ["git", "checkout", "."], 
@@ -214,16 +171,14 @@ class CodeExecutionService:
                     result.add_log("Reset working directory for new changes")
                 except Exception:
                     pass
-            
-            # Step 1.5: Validate JSON files before applying
+
             result.stage = 'validate_json'
             json_errors = self._validate_json_files(file_changes)
             if json_errors:
                 result.error = f"JSON validation failed:\n" + "\n".join(json_errors)
                 result.add_log(f"JSON errors found: {json_errors}")
                 return result
-            
-            # Step 2: Apply file changes (edit or patch)
+
             result.stage = 'apply'
             for c in file_changes:
                 change = self._normalize_change(c)
@@ -232,15 +187,13 @@ class CodeExecutionService:
                 else:
                     self._apply_edit(temp_dir, change)
                     result.add_log(f"Applied change to {change.file_path}")
-            
-            # Step 2.5: Format files using project formatters (only for edit changes)
+
             result.stage = 'format'
             edit_changes = [self._normalize_change(c) for c in file_changes if self._normalize_change(c).type == 'edit']
             formatted_changes = self._format_files(temp_dir, edit_changes, result)
             if formatted_changes:
                 result.formatted_file_changes = formatted_changes
-            
-            # Step 3: Detect stack (if not already detected in session)
+
             if not stack_config:
                 result.stage = 'detect'
                 file_paths = self._get_file_list(temp_dir)
@@ -249,7 +202,6 @@ class CodeExecutionService:
                 result.add_log(f"Using cached stack config: {stack_config.stack_type}")
             
             if stack_config is None:
-                # Can't detect stack - skip validation and allow PR creation
                 result.add_log("Could not detect project stack - skipping validation")
                 result.add_log("Supported stacks: Python (requirements.txt), Node.js (package.json)")
                 result.success = True
@@ -257,8 +209,6 @@ class CodeExecutionService:
             result.add_log(f"Detected stack: {stack_config.stack_type}")
             if stack_config.project_root:
                 result.add_log(f"Using project root: {stack_config.project_root}")
-            
-            # Step 4: Choose execution mode
             if self.use_aws and self.aws_sandbox:
                 # Production: Use AWS Fargate
                 result.add_log("Using AWS Fargate sandbox")
@@ -273,8 +223,7 @@ class CodeExecutionService:
                 # Fallback: Run locally
                 result.add_log("Docker not available, running locally")
                 return self._run_locally(temp_dir, stack_config, run_tests, run_build, result)
-            
-            # Step 5: Resolve image and create container (if needed)
+
             if container:
                  result.add_log(f"Reusing container: {container.short_id}")
             else:
@@ -296,17 +245,13 @@ class CodeExecutionService:
                 
                 container = self.docker_sandbox.create_container(image, temp_dir)
                 result.add_log(f"Created container: {container.short_id}")
-            
-            # Step 6: Install dependencies
-            # If reusing container, dependencies might already be installed.
-            # But we run install anyway to be safe (npm/pip usually cache/skip if satisfied)
+
             result.stage = 'install'
             install_result = self._run_install(container, stack_config, result)
             if not install_result.success:
                 result.error = f"Install failed: {install_result.stderr}"
                 return result
-            
-            # Step 6.5: Security scan on changed files
+
             result.stage = 'security'
             changed_file_paths = [self._normalize_change(c).file_path for c in file_changes]
             scan_result = self._run_security_scan(
@@ -316,16 +261,14 @@ class CodeExecutionService:
                 result.error = f"Security issues found: {scan_result.high_severity_count} high/critical vulnerabilities"
                 result.security_issues = [i.to_dict() for i in scan_result.issues]
                 return result
-            
-            # Step 6.6: Type checking
+
             result.stage = 'typecheck'
             typecheck_result = self._run_typecheck(container, stack_config, result)
             if not typecheck_result.success:
                 result.error = f"Type check failed: {result.typecheck_errors[:500] if result.typecheck_errors else 'Unknown error'}"
                 result.exit_code = typecheck_result.exit_code
                 return result
-            
-            # Step 7: Run tests (only if test script exists)
+
             if run_tests:
                 result.stage = 'test'
                 if not self._has_test_script(temp_dir, stack_config):
@@ -336,8 +279,7 @@ class CodeExecutionService:
                         result.error = f"Tests failed with exit code {test_result.exit_code}"
                         result.exit_code = test_result.exit_code
                         return result
-            
-            # Step 8: Run build (optional)
+
             if run_build and stack_config.build_command:
                 result.stage = 'build'
                 build_result = self._run_build(container, stack_config, result)
@@ -355,10 +297,7 @@ class CodeExecutionService:
             return result
             
         finally:
-            # Cleanup
             if keep_alive:
-                # If we want to keep alive, persist session even if validation failed (so we can fix it)
-                # But only if we actually have a container/environment to persist
                 if container:
                     import uuid
                     session_id = session.id if session else str(uuid.uuid4())
@@ -373,25 +312,18 @@ class CodeExecutionService:
                     )
                     result.add_log(f"Persisting session {session_id}")
                 elif session:
-                    # If we had a session but maybe container creation failed this time?
-                    # Or we leveraged an existing session type?
-                    # Just return the original session to be safe, ensuring we don't lose context if possible
                     result.session = session
-            
+
             if not result.session:
-                # Traditional cleanup if not keeping alive or if session creation failed
                 if container and self.docker_sandbox:
                     self.docker_sandbox.cleanup(container)
                 if built_image and self.docker_sandbox and not (session and session.image_tag == built_image):
-                    # Only cleanup image if it wasn't inherited from session
                     self.docker_sandbox.cleanup_image(built_image)
                 if temp_dir and os.path.exists(temp_dir):
                     if not session or session.work_dir != temp_dir:
-                         # Only clean directory if it wasn't inherited
                         shutil.rmtree(temp_dir, ignore_errors=True)
 
     def cleanup_session(self, session: SandboxSession):
-        """Cleanup a persistent session."""
         try:
             if session.type == 'docker':
                 if self.docker_sandbox:
@@ -399,7 +331,7 @@ class CodeExecutionService:
                         container = self.docker_sandbox.client.containers.get(session.resource_id)
                         self.docker_sandbox.cleanup(container)
                     except Exception:
-                        pass # Container might be gone already
+                        pass
                     
                     if session.image_tag:
                         self.docker_sandbox.cleanup_image(session.image_tag)

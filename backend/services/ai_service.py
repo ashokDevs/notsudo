@@ -6,21 +6,11 @@ from openai import OpenAI
 from utils.logger import get_logger
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-
-# Available models for OpenRouter
-AVAILABLE_MODELS = {
-    'claude-3-5-sonnet': {
-        'id': 'anthropic/claude-3.5-sonnet',
-        'name': 'Claude 3.5 Sonnet',
-        'provider': 'anthropic'
-    },
-}
-
 DEFAULT_MODEL = os.environ.get("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
-
-# Enable LLM caching during development
 ENABLE_LLM_CACHE = os.environ.get('ENABLE_LLM_CACHE', 'false').lower() == 'true'
 LLM_CACHE_DIR = Path(os.environ.get('LLM_CACHE_DIR', '/tmp/llm_cache'))
+MAX_FILE_CHARS = 2_000
+MAX_TURNS = 5
 
 logger = get_logger(__name__)
 
@@ -42,15 +32,13 @@ class AIService:
         logger.info("ai_service_initialized", model=self.model, base_url=OPENROUTER_BASE_URL)
     
     def _get_cache_key(self, *args) -> str:
-        """Generate a cache key from the input arguments."""
         content = json.dumps(args, sort_keys=True, default=str)
         return hashlib.sha256(content.encode()).hexdigest()[:16]
-    
+
     def _get_cached_response(self, cache_key: str):
-        """Try to get a cached response."""
         if not self.cache_enabled:
             return None
-        
+
         cache_file = self.cache_dir / f"{cache_key}.json"
         if cache_file.exists():
             try:
@@ -61,12 +49,11 @@ class AIService:
             except (json.JSONDecodeError, IOError):
                 pass
         return None
-    
+
     def _save_to_cache(self, cache_key: str, response: dict):
-        """Save a response to the cache."""
         if not self.cache_enabled:
             return
-        
+
         cache_file = self.cache_dir / f"{cache_key}.json"
         try:
             with open(cache_file, 'w') as f:
@@ -83,10 +70,8 @@ class AIService:
             codebase_files_count=len(codebase_files)
         )
         
-        # Build codebase context with truncation warnings for large files
-        MAX_FILE_CHARS = 2000
         context_parts = []
-        
+
         for file in codebase_files:
             content = file['content']
             is_truncated = len(content) > MAX_FILE_CHARS
@@ -267,9 +252,8 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
                 'metadata': {'file_count': len(codebase_files), 'model': self.model}
             })
         
-        MAX_TURNS = 5
         current_turn = 0
-        
+
         while current_turn < MAX_TURNS:
             current_turn += 1
             logger.info("calling_llm", model=self.model, turn=current_turn, messages_count=len(messages))
@@ -473,7 +457,6 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
             codebase_files_count=len(codebase_files)
         )
         
-        # Check cache first
         cache_key = self._get_cache_key(
             'analyze_pr', pr_title, pr_body, comment_body, codebase_memory,
             [(f['path'], f['content'][:500]) for f in codebase_files]
@@ -481,9 +464,7 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
         cached = self._get_cached_response(cache_key)
         if cached:
             return cached
-        
-        # Build codebase context with truncation warnings for large files
-        MAX_FILE_CHARS = 2000
+
         context_parts = []
         truncated_files = []
         
@@ -686,7 +667,6 @@ Analyze the comment and update the code to address the feedback. Use the availab
             raise
     
     def fix_test_failures(self, original_changes, error_logs, codebase_files=None, job_id=None):
-        """Analyze test failures and suggest fixes."""
         logger.info(
             "fixing_test_failures",
             original_changes_count=len(original_changes),
@@ -817,9 +797,6 @@ Analyze the errors and provide fixed versions of the files using edit_file."""
             raise
 
     def resolve_merge_conflicts(self, conflicted_files, job_id=None):
-        """
-        Resolve merge conflicts in the provided files.
-        """
         logger.info("resolving_merge_conflicts", file_count=len(conflicted_files))
 
         tools = [
