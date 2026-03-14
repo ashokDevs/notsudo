@@ -18,7 +18,10 @@ from services.ai_service import AIService, AVAILABLE_MODELS, DEFAULT_MODEL
 from services.github_service import GitHubService
 from services.pr_service import PRService
 from services import db as database
-from services.redis_service import set_cache, get_cache, delete_cache, enqueue_job, set_job_cache, get_job_cache, get_all_job_ids
+from services.redis_service import (
+    set_cache, get_cache, delete_cache, enqueue_job, set_job_cache, 
+    get_job_cache, get_all_job_ids, acquire_lock, release_lock
+)
 import tasks
 from utils.logger import get_logger
 import requests as py_requests
@@ -30,6 +33,14 @@ load_dotenv(BASE_DIR / ".env")
 
 app = Flask(__name__)
 CORS(app)
+
+# Initialize database
+if database.is_db_available():
+    try:
+        database.init_db()
+        logger.info("database_initialized")
+    except Exception as e:
+        logger.error("database_initialization_failed", error=str(e))
 
 # Initialize SocketIO with Redis message queue for background task communication
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
@@ -216,32 +227,43 @@ def create_job_atomically(repo_full_name, issue_number, job_data):
     """
     Create a job atomically, preventing race conditions from concurrent webhooks.
     
-    Uses atomic database operation when available, falls back to in-memory checks
-    for JSON storage.
+    Uses Redis lock + atomic database operation (if available) or fallback checks.
     
     Returns:
         The created job dict if successful, None if a duplicate exists
     """
-    if database.is_db_available():
-        # Use atomic database operation
-        result = database.atomic_create_job_if_not_exists(
-            repo_full_name=repo_full_name,
-            issue_number=issue_number,
-            job_data=job_data
-        )
-        if result is None:
-            logger.warning("job_duplicate_prevented_atomic", repo=repo_full_name, issue=issue_number)
-        return result
-    else:
-        # Fallback: use in-memory checks (not fully atomic, but best effort)
-        if is_job_in_progress(repo_full_name, issue_number):
-            logger.warning("job_duplicate_prevented", repo=repo_full_name, issue=issue_number)
-            return None
-        if is_rate_limited(repo_full_name, issue_number):
-            logger.warning("job_rate_limited", repo=repo_full_name, issue=issue_number)
-            return None
-        save_job(job_data)
-        return job_data
+    # Create a unique lock key for this repo/issue combination
+    lock_key = f"job_lock:{repo_full_name}:{issue_number}"
+    
+    # Try to acquire a lock to prevent race conditions
+    if not acquire_lock(lock_key, timeout=10):
+        logger.warning("job_creation_locked", repo=repo_full_name, issue=issue_number)
+        return None
+        
+    try:
+        if database.is_db_available():
+            # Use atomic database operation
+            result = database.atomic_create_job_if_not_exists(
+                repo_full_name=repo_full_name,
+                issue_number=issue_number,
+                job_data=job_data
+            )
+            if result is None:
+                logger.warning("job_duplicate_prevented_atomic", repo=repo_full_name, issue=issue_number)
+            return result
+        else:
+            # Fallback: use in-memory checks (not fully atomic, but best effort)
+            if is_job_in_progress(repo_full_name, issue_number):
+                logger.warning("job_duplicate_prevented", repo=repo_full_name, issue=issue_number)
+                return None
+            if is_rate_limited(repo_full_name, issue_number):
+                logger.warning("job_rate_limited", repo=repo_full_name, issue=issue_number)
+                return None
+            save_job(job_data)
+            return job_data
+    finally:
+        # Always release the lock
+        release_lock(lock_key)
 
 
 
@@ -257,10 +279,9 @@ def verify_github_signature(payload_body, signature_header, secret):
     return hmac.compare_digest(expected_signature, github_signature)
 
 def get_current_webhook_url():
-    base_url = os.environ.get('REPL_SLUG')
+    base_url = os.environ.get('WEBHOOK_BASE_URL')
     if base_url:
-        domain = f"{base_url}.{os.environ.get('REPL_OWNER', 'replit')}.repl.co"
-        webhook_url = f"https://{domain}/api/webhook"
+        webhook_url = f"{base_url}/api/webhook"
     else:
         webhook_url = "http://localhost:8000/api/webhook"
     return webhook_url
@@ -639,7 +660,7 @@ def handle_webhook():
         issue_body=issue_body,
         comment_body=comment_body,
         is_pr=is_pr,
-        job_id=job_id,
+        current_job_id=job_id,
         github_token=github_token,
         config=config
     )
@@ -941,7 +962,7 @@ def save_repo_memory(repo_full_name):
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/jobs/<job_id>/logs', methods=['GET'])
+@app.route('/api/jobs/<path:job_id>/logs', methods=['GET'])
 def get_job_logs(job_id):
     """Get detailed logs for a specific job."""
     jobs = load_jobs()
@@ -957,7 +978,7 @@ def get_job_logs(job_id):
     return jsonify({'error': 'Job not found'}), 404
 
 
-@app.route('/api/jobs/<job_id>/feed', methods=['GET'])
+@app.route('/api/jobs/<path:job_id>/feed', methods=['GET'])
 def get_job_feed(job_id):
     """Get structured logs (feed) for a specific job."""
     logs = database.get_job_logs(job_id)
