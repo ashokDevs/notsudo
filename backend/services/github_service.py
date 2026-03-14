@@ -6,8 +6,16 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+MAX_RETRIES = 3
+MAX_WAIT_TIME = 60
+MAX_DEPTH = 5
+MAX_FILES = 20
+LARGE_REPO_THRESHOLD = 1_000
+
+
 class RateLimitExceeded(Exception):
     pass
+
 
 def is_rate_limit_error(exception):
     if isinstance(exception, GithubException) and exception.status == 403:
@@ -53,12 +61,8 @@ class GitHubService:
         except Exception as e:
             logger.warning("failed_to_check_rate_limit", error=str(e))
 
-    def _wait_for_rate_limit_reset(self, exception, max_wait_time=60):
-        """
-        Calculates wait time based on X-RateLimit-Reset header or defaults to 60 seconds.
-        Returns the wait time if it's within max_wait_time, otherwise raises the exception.
-        """
-        wait_time = 60
+    def _wait_for_rate_limit_reset(self, exception, max_wait_time=MAX_WAIT_TIME):
+        wait_time = MAX_WAIT_TIME
         if isinstance(exception, GithubException) and exception.headers:
             reset_timestamp = exception.headers.get('X-RateLimit-Reset')
             if reset_timestamp:
@@ -86,21 +90,15 @@ class GitHubService:
         return wait_time
 
     def _execute_with_retry(self, func, *args, **kwargs):
-        max_retries = 3
-        # Allow max wait time of 60 seconds per retry
-        max_wait_time = 60
-
-        for attempt in range(max_retries):
+        for attempt in range(MAX_RETRIES):
             try:
                 return func(*args, **kwargs)
             except GithubException as e:
                 if is_rate_limit_error(e):
-                    # This raises if wait time is too long
-                    wait_time = self._wait_for_rate_limit_reset(e, max_wait_time=max_wait_time)
-                    # Add a small buffer to be safe
+                    wait_time = self._wait_for_rate_limit_reset(e, max_wait_time=MAX_WAIT_TIME)
                     wait_time += 1
 
-                    if attempt < max_retries - 1:
+                    if attempt < MAX_RETRIES - 1:
                         logger.warning("rate_limited_sleeping", wait_time=wait_time, attempt=attempt+1)
                         time.sleep(wait_time)
                         continue
@@ -112,19 +110,13 @@ class GitHubService:
                 raise
     
     def verify_token_scopes(self):
-        """
-        Verify if the token has the required 'repo' scope for private repositories.
-        """
         try:
-            # Access user to trigger request and populate scopes
             user = self.github.get_user()
-            # We access a property to ensure the request is made
             _ = user.login
 
             scopes = self.github.oauth_scopes
             logger.info("token_scopes_verified", scopes=scopes)
 
-            # Scopes can be None if not OAuth/PAT or if not provided in headers
             if scopes is None:
                 return {
                     'valid': True,
@@ -155,18 +147,12 @@ class GitHubService:
             }
 
     def get_available_repos(self):
-        """
-        Get all repositories accessible by the GitHub token.
-        Returns a list of repository info dictionaries.
-        Includes: owned repos, collaborator repos, and organization member repos.
-        """
         logger.info("fetching_available_repos")
         
         def _fetch():
             repos = []
             seen = set()
-            
-            # Get repos with all affiliations: owner, collaborator, org member
+
             for repo in self.github.get_user().get_repos(affiliation='owner,collaborator,organization_member'):
                 if repo.full_name not in seen:
                     seen.add(repo.full_name)
@@ -267,7 +253,7 @@ class GitHubService:
             logger.warning("file_fetch_failed", path=file_path, error=str(e))
             return None
     
-    def get_directory_structure(self, repo, path='', ref='main', max_depth=5, skip_patterns=None):
+    def get_directory_structure(self, repo, path='', ref='main', max_depth=MAX_DEPTH, skip_patterns=None):
         if skip_patterns is None:
             skip_patterns = ['node_modules', 'vendor', '.git', 'dist', 'build', '__pycache__', '.idea', '.vscode']
 
@@ -280,8 +266,6 @@ class GitHubService:
             return contents
 
         try:
-            # Recursion makes _execute_with_retry tricky if we wrap the whole method.
-            # Instead, wrap the API call.
             def _get_items():
                 return repo.get_contents(path, ref=ref)
 
@@ -300,7 +284,7 @@ class GitHubService:
                 else:
                     contents.append({'path': item.path, 'type': 'file', 'size': item.size})
 
-            if len(contents) > 1000 and current_depth == 0:
+            if len(contents) > LARGE_REPO_THRESHOLD and current_depth == 0:
                 logger.warning("large_repository_detected", file_count=len(contents))
 
         except UnknownObjectException:
@@ -310,7 +294,7 @@ class GitHubService:
 
         return contents
     
-    def get_relevant_files(self, repo, max_files=20):
+    def get_relevant_files(self, repo, max_files=MAX_FILES):
         logger.info("fetching_relevant_files", repo=repo.full_name, max_files=max_files)
         
         structure = self.get_directory_structure(repo)
@@ -389,15 +373,6 @@ class GitHubService:
             }
     
     def create_branch(self, repo, branch_name, source_branch='main'):
-        """
-        Create a new branch from source_branch.
-        
-        Returns:
-            dict with:
-                - success: True if branch exists (created or already existed)
-                - created: True if we created it, False if it already existed
-                - error: Error message if failed
-        """
         logger.info("creating_branch", branch=branch_name, source=source_branch)
         
         try:
@@ -417,7 +392,6 @@ class GitHubService:
             return {'success': False, 'error': str(e)}
 
     def delete_branch(self, repo, branch_name):
-        """Delete a branch from the repository."""
         logger.info("deleting_branch", branch=branch_name)
         try:
             # Check if branch exists first
@@ -435,7 +409,6 @@ class GitHubService:
             return False
 
     def add_issue_comment(self, repo, issue_number, body):
-        """Add a comment to an issue."""
         logger.info("adding_issue_comment", issue_number=issue_number)
         try:
             issue = repo.get_issue(number=issue_number)
@@ -552,7 +525,6 @@ class GitHubService:
             raise
 
     def get_issues(self, repo_full_name, state='open'):
-        """Get issues for a repository."""
         logger.info("fetching_issues", repo=repo_full_name, state=state)
         try:
             repo = self.github.get_repo(repo_full_name)

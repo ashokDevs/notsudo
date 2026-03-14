@@ -1,7 +1,3 @@
-"""
-Groq AI Service for CloudAgent.
-Uses Groq's Python SDK for high-performance LLM inference with tool calling support.
-"""
 import json
 import os
 import hashlib
@@ -9,60 +5,27 @@ from groq import Groq
 from utils.logger import get_logger
 from services import db
 
-# Default model - openai/gpt-oss-120b is Groq's recommended model for tool calling
-# See: https://console.groq.com/docs/tool-use/local-tool-calling
 DEFAULT_GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+MAX_FILE_CHARS = 2_000
 
 logger = get_logger(__name__)
 
 
 class GroqService:
-    """AI Service using Groq's API for fast inference with tool calling."""
-    
     def __init__(self, api_key=None, model=None):
-        """
-        Initialize Groq service.
-        
-        Args:
-            api_key: Groq API key (defaults to GROQ_API_KEY env var)
-            model: Model to use (defaults to GROQ_MODEL env var or llama-3.3-70b-versatile)
-        """
         self.client = Groq(api_key=api_key)
         self.model = model or DEFAULT_GROQ_MODEL
         self._cache = {}
         logger.info("groq_service_initialized", model=self.model)
 
     def _get_cache_key(self, method_name, **kwargs):
-        """
-        Generate a stable MD5 cache key for a method call and its arguments.
-        
-        Args:
-            method_name: Name of the method being called
-            kwargs: Dictionary of arguments passed to the method
-            
-        Returns:
-            MD5 hex digest string
-        """
-        # Sort keys to ensure consistent hashing of the same arguments
         serialized_args = json.dumps(kwargs, sort_keys=True)
         key_content = f"{method_name}:{serialized_args}"
         return hashlib.md5(key_content.encode()).hexdigest()
-        
+
     def generate_branch_name(self, issue_number=None, issue_title=None, issue_body=None):
-        """
-        Generate a descriptive branch name using AI.
-        
-        Args:
-            issue_number: The GitHub issue number (optional)
-            issue_title: The title of the issue or task description
-            issue_body: The description of the issue (optional)
-            
-        Returns:
-            A slugified branch name string
-        """
         logger.info("generating_branch_name", issue_number=issue_number)
-        
-        # Check cache
+
         cache_key = self._get_cache_key("generate_branch_name", 
                                        issue_number=issue_number, 
                                        issue_title=issue_title, 
@@ -70,9 +33,9 @@ class GroqService:
         if cache_key in self._cache:
             logger.info("cache_hit", method="generate_branch_name", key=cache_key)
             return self._cache[cache_key]
-            
+
         logger.info("cache_miss", method="generate_branch_name", key=cache_key)
-        
+
         system_prompt = """You are a git expert. Generate a short git branch name (3-5 words) for the given task.
 Rules:
 - Format: issue_number-short-description (if issue number is provided)
@@ -130,31 +93,16 @@ Rules:
             
         except Exception as e:
             logger.error("branch_name_generation_failed", error=str(e))
-            # Fallback
             return f"{issue_number}-ai-fix"
 
     def analyze_issue_and_plan_changes(self, issue_title, issue_body, comment_body, codebase_files, codebase_memory=None, custom_rules=None, repo_url=None, code_execution_service=None, job_id=None):
-        """
-        Analyze a GitHub issue and plan code changes using tool calling.
-        
-        Args:
-            issue_title: Title of the GitHub issue
-            issue_body: Body/description of the issue
-            comment_body: User comment triggering the analysis
-            codebase_files: List of dicts with 'path' and 'content' keys
-            codebase_memory: Memory/Context for the repository
-            
-        Returns:
-            Dict with 'file_changes' list and 'analysis' string
-        """
         logger.info(
             "analyzing_issue",
             issue_title=issue_title,
             comment_length=len(comment_body),
             codebase_files_count=len(codebase_files)
         )
-        
-        # Check cache
+
         cache_key = self._get_cache_key("analyze_issue_and_plan_changes",
                                        issue_title=issue_title,
                                        issue_body=issue_body,
@@ -166,16 +114,16 @@ Rules:
         if cache_key in self._cache:
             logger.info("cache_hit", method="analyze_issue_and_plan_changes", key=cache_key)
             return self._cache[cache_key]
-            
+
         logger.info("cache_miss", method="analyze_issue_and_plan_changes", key=cache_key)
-        
+
         codebase_context = "\n\n".join([
-            f"File: {file['path']}\n```\n{file['content'][:2000]}\n```"
+            f"File: {file['path']}\n```\n{file['content'][:MAX_FILE_CHARS]}\n```"
             for file in codebase_files
         ])
         
         logger.debug("codebase_context_built", context_length=len(codebase_context))
-        
+
         tools = [
             {
                 "type": "function",
@@ -256,11 +204,9 @@ Rules for using the edit_file tool:
 
 Always respond by calling the edit_file tool."""
 
-        # Add codebase memory if provided
         if codebase_memory:
             system_prompt += f"\n\nRepository Context & Memory:\n{json.dumps(codebase_memory, indent=2)}"
 
-        # Add custom rules if provided
         if custom_rules and custom_rules.strip():
             system_prompt += f"\n\nAdditional Custom Rules:\n{custom_rules}"
 
@@ -275,7 +221,7 @@ User Comment:
 Available Codebase Files:
 {codebase_context}
 
-Analyze this issue and determine what code changes are needed. Use the edit_file function to specify the exact changes."""
+Analyze this issue and determine what code changes are needed. Use the edit_file function to specify the exact changes.\""""
 
         if job_id:
             db.insert_job_log({
@@ -287,17 +233,13 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
             })
 
         logger.info("calling_groq_llm", model=self.model, prompt_length=len(user_prompt))
-        
-        # Log full prompts for debugging
         logger.debug("system_prompt", prompt=system_prompt)
-        logger.debug("user_prompt", prompt=user_prompt[:5000])  # First 5k chars
-        
-        # Retry with decreasing temperature on tool call failures
-        # Per Groq docs: https://console.groq.com/docs/tool-use/local-tool-calling#retry-strategy-for-failed-tool-calls
+        logger.debug("user_prompt", prompt=user_prompt[:5_000])
+
         max_retries = 3
         temperature = 1.0
         last_error = None
-        
+
         for attempt in range(max_retries):
             try:
                 response = self.client.chat.completions.create(
@@ -313,20 +255,17 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
                 )
                 
                 message = response.choices[0].message
-                
-                # Log raw response for debugging
+
                 logger.info(
                     "groq_response_received",
                     has_tool_calls=bool(message.tool_calls),
                     tool_calls_count=len(message.tool_calls) if message.tool_calls else 0,
                     content_length=len(message.content) if message.content else 0
                 )
-                
-                # Log content/analysis from the model
+
                 if message.content:
-                    logger.debug("groq_content", content=message.content[:2000])
-                
-                # Log raw tool calls
+                    logger.debug("groq_content", content=message.content[:MAX_FILE_CHARS])
+
                 if message.tool_calls:
                     for i, tc in enumerate(message.tool_calls):
                         logger.info(
@@ -335,20 +274,19 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
                             function_name=tc.function.name,
                             arguments_preview=tc.function.arguments[:500] if tc.function.arguments else None
                         )
-                
+
                 file_changes = []
                 if message.tool_calls:
                     for tool_call in message.tool_calls:
                         logger.debug(
                             "processing_tool_call",
                             function_name=tool_call.function.name,
-                            raw_args=tool_call.function.arguments[:1000] if tool_call.function.arguments else None
+                            raw_args=tool_call.function.arguments[:1_000] if tool_call.function.arguments else None
                         )
-                        
+
                         if tool_call.function.name == "edit_file":
                             try:
                                 args = json.loads(tool_call.function.arguments)
-                                # Some models use 'path' instead of 'file_path'
                                 file_path = args.get('file_path') or args.get('path')
                                 reason = args.get('reason')
                                 new_content = args.get('new_content', '')
@@ -385,10 +323,8 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
                                     raw_args=tool_call.function.arguments[:500]
                                 )
                         elif tool_call.function.name == "exec":
-                            # For now, just log that we got an exec call but we need to handle it in the prompt loop
                             logger.info("groq_exec_tool_called", raw_args=tool_call.function.arguments)
-                            pass
-                        
+
                         else:
                             logger.warning(
                                 "unknown_tool_call",
@@ -399,7 +335,7 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
                     logger.warning("no_tool_calls_in_response", content=message.content[:500] if message.content else None)
                 
                 logger.info("analysis_complete", total_changes=len(file_changes))
-                
+
                 result = {
                     'file_changes': file_changes,
                     'analysis': message.content or "AI suggested file changes via tool calls"
@@ -458,14 +394,8 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
             raise last_error
 
     def analyze_pr_comment(self, pr_title, pr_body, comment_body, codebase_files, codebase_memory=None, custom_rules=None, job_id=None):
-        """Analyze PR comment (Stubbed for GroqService)."""
-        # Implement full logic similar to analyze_issue_and_plan_changes if needed.
-        # For now, reusing analyze_issue_and_plan_changes logic or providing a simplified version.
-        # Since analyze_issue_and_plan_changes is generic, we can adapt it.
-
         logger.info("analyzing_pr_comment_groq", pr_title=pr_title)
 
-        # We'll map PR fields to issue fields for the prompt
         return self.analyze_issue_and_plan_changes(
             issue_title=f"PR: {pr_title}",
             issue_body=pr_body,
@@ -475,26 +405,14 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
             custom_rules=custom_rules,
             job_id=job_id
         )
-    
+
     def fix_test_failures(self, original_changes, error_logs, codebase_files=None, job_id=None):
-        """
-        Analyze test failures and suggest fixes.
-        
-        Args:
-            original_changes: List of original file changes that caused test failures
-            error_logs: String containing test error output
-            codebase_files: Optional list of codebase file dicts
-            
-        Returns:
-            List of fixed file changes
-        """
         logger.info(
             "fixing_test_failures",
             original_changes_count=len(original_changes),
             error_logs_length=len(error_logs)
         )
-        
-        # Check cache
+
         cache_key = self._get_cache_key("fix_test_failures",
                                        original_changes=original_changes,
                                        error_logs=error_logs,
@@ -502,9 +420,9 @@ Analyze this issue and determine what code changes are needed. Use the edit_file
         if cache_key in self._cache:
             logger.info("cache_hit", method="fix_test_failures", key=cache_key)
             return self._cache[cache_key]
-            
+
         logger.info("cache_miss", method="fix_test_failures", key=cache_key)
-        
+
         tools = [
             {
                 "type": "function",
@@ -608,13 +526,12 @@ Analyze the errors and provide fixed versions of the files using edit_file."""
             })
 
         logger.info("calling_groq_for_fix", model=self.model, prompt_length=len(user_prompt))
-        logger.debug("fix_user_prompt", prompt=user_prompt[:3000])
+        logger.debug("fix_user_prompt", prompt=user_prompt[:3_000])
 
-        # Retry with decreasing temperature on tool call failures
         max_retries = 3
         temperature = 1.0
         last_error = None
-        
+
         for attempt in range(max_retries):
             try:
                 response = self.client.chat.completions.create(
@@ -630,16 +547,16 @@ Analyze the errors and provide fixed versions of the files using edit_file."""
                 )
                 
                 message = response.choices[0].message
-                
+
                 logger.info(
                     "fix_groq_response",
                     has_tool_calls=bool(message.tool_calls),
                     tool_calls_count=len(message.tool_calls) if message.tool_calls else 0
                 )
-                
+
                 if message.content:
-                    logger.debug("fix_groq_content", content=message.content[:1000])
-                
+                    logger.debug("fix_groq_content", content=message.content[:1_000])
+
                 file_changes = []
                 if message.tool_calls:
                     for tool_call in message.tool_calls:
@@ -648,11 +565,10 @@ Analyze the errors and provide fixed versions of the files using edit_file."""
                             function_name=tool_call.function.name,
                             args_preview=tool_call.function.arguments[:500] if tool_call.function.arguments else None
                         )
-                        
+
                         if tool_call.function.name == "edit_file":
                             try:
                                 args = json.loads(tool_call.function.arguments)
-                                # Some models use 'path' instead of 'file_path'
                                 file_path = args.get('file_path') or args.get('path')
                                 reason = args.get('reason', 'Fix test failure')
                                 
@@ -677,18 +593,14 @@ Analyze the errors and provide fixed versions of the files using edit_file."""
                                     })
                             except json.JSONDecodeError as e:
                                 logger.error("fix_parse_error", error=str(e))
-                
+
                 if file_changes:
                     logger.info("fixes_complete", fixes_count=len(file_changes))
-                    
-                    # IMPORTANT: Merge fixes with original changes, don't replace them!
-                    # The AI may fix one file while the original changes had multiple files.
-                    # We need to keep all original changes and update/add the fixed ones.
+
                     merged_changes = []
                     original_paths = {c['file_path'] for c in original_changes}
                     fix_paths = {c['file_path'] for c in file_changes}
-                    
-                    # Add all original changes, but use fixed version if available
+
                     for original in original_changes:
                         if original['file_path'] in fix_paths:
                             # Find the fix for this file
@@ -696,15 +608,13 @@ Analyze the errors and provide fixed versions of the files using edit_file."""
                             merged_changes.append(fix)
                             logger.info("fix_merged_with_original", file=original['file_path'])
                         else:
-                            # Keep original change as-is
                             merged_changes.append(original)
-                    
-                    # Add any fixes for files not in original changes (e.g., package.json fix)
+
                     for fix in file_changes:
                         if fix['file_path'] not in original_paths:
                             merged_changes.append(fix)
                             logger.info("fix_added_new_file", file=fix['file_path'])
-                    
+
                     logger.info("fixes_merged", 
                                original_count=len(original_changes),
                                fix_count=len(file_changes),
