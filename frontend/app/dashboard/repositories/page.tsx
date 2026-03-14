@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { RepositoriesGrid } from "@/components/dashboard/RepositoriesGrid";
 import { useSession } from "@/lib/auth-client";
 import { getSocket } from "@/lib/socket";
-import { RefreshCw, ArrowLeft, ChevronDown, Trash2, MessageSquare, Settings, User } from "lucide-react";
-import Link from "next/link";
 
 interface Repository {
   id: string;
@@ -27,20 +25,16 @@ export default function RepositoriesPage() {
   
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const fetchRepositories = useCallback(async () => {
     if (!session?.user?.id) return;
-    
+
     try {
       const response = await fetch(`${API_URL}/api/repos?user_id=${session.user.id}`);
       if (response.ok) {
         const data = await response.json();
         setRepositories(Array.isArray(data) ? data : data.repos || []);
       }
-      setLastUpdated(new Date());
-    } catch (error) {
-      console.error("Failed to fetch repositories:", error);
     } finally {
       setLoading(false);
     }
@@ -88,9 +82,9 @@ export default function RepositoriesPage() {
 
   if (!session) return null;
 
-  const handleConnectRepo = () => {
+  function handleConnectRepo(): void {
     router.push("/dashboard/settings");
-  };
+  }
 
   return (
     <div className="min-h-screen bg-[#020202] text-zinc-100 font-modern selection:bg-orange-500/30">

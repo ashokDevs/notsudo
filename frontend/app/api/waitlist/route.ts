@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleSpreadsheet } from "google-spreadsheet";
 import { JWT } from "google-auth-library";
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function isValidEmail(email: string): boolean {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
+  return EMAIL_REGEX.test(email);
 }
 
 async function getGoogleSheet() {
@@ -76,9 +77,6 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
-    console.error("Waitlist error:", error);
-    
-    // Check if it's a credentials error
     if (error instanceof Error && error.message.includes("credentials")) {
       return NextResponse.json(
         { error: "Service temporarily unavailable. Please try again later." },

@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { GitBranch, Lock, Search, RefreshCw, ArrowLeft, ChevronDown, Trash2, MessageSquare, Settings, User, AlertCircle } from "lucide-react";
-import Link from "next/link";
+import { GitBranch, Lock, Search, RefreshCw, ChevronDown, AlertCircle } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
 
 interface Repository {
@@ -30,11 +29,12 @@ export default function Repositories() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const fetchRepos = async () => {
+  const fetchRepos = useCallback(async (): Promise<void> => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("http://localhost:8000/api/repos");
+      const response = await fetch(`${apiUrl}/api/repos`);
       if (!response.ok) {
         throw new Error("Failed to fetch repositories");
       }
@@ -45,11 +45,11 @@ export default function Repositories() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchRepos();
-  }, []);
+  }, [fetchRepos]);
 
   const filteredRepos = repos.filter((repo) =>
     repo.full_name.toLowerCase().includes(searchQuery.toLowerCase())

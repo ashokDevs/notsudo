@@ -3,21 +3,18 @@ import { Press_Start_2P, VT323, Inter } from "next/font/google"
 import "./globals.css"
 import { Analytics } from "@vercel/analytics/react"
 
-// Modern font
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-modern"
 })
 
-// Retro pixel font for headings and accents
-const pressStart2P = Press_Start_2P({ 
+const pressStart2P = Press_Start_2P({
   weight: "400",
   subsets: ["latin"],
   variable: "--font-retro-heading"
 })
 
-// Retro terminal font for body text
-const vt323 = VT323({ 
+const vt323 = VT323({
   weight: "400",
   subsets: ["latin"],
   variable: "--font-retro-body"

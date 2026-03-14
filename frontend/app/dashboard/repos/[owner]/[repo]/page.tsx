@@ -1,29 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import {
-  GitBranch,
-  Settings,
   AlertCircle,
-  Play,
   CheckCircle2,
   XCircle,
   Clock,
   ExternalLink,
-  Copy,
-  ArrowLeft,
-  ChevronDown,
-  Trash2,
-  MessageSquare,
-  User,
-  Info,
-  Check,
   Loader2
 } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
-import { useSession } from "@/lib/auth-client";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface Issue {
   number: number;
@@ -55,43 +46,24 @@ interface Job {
 export default function RepositoryDetails() {
   const params = useParams();
   const repoFullName = `${params.owner}/${params.repo}`;
-  const { data: session } = useSession();
-  
-  const [activeTab, setActiveTab] = useState<"issues" | "jobs">("issues");
-  const [showWebhookSetup, setShowWebhookSetup] = useState(false);
-  const [webhookUrl, setWebhookUrl] = useState<string>("");
-  const [webhookSecret, setWebhookSecret] = useState<boolean>(false);
-  const [copySuccess, setCopySuccess] = useState(false);
 
+  const [activeTab, setActiveTab] = useState<"issues" | "jobs">("issues");
   const [issues, setIssues] = useState<Issue[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch("http://localhost:8000/api/webhook-url")
-      .then(res => res.json())
-      .then(data => setWebhookUrl(data.webhookUrl))
-      .catch(console.error);
-
-    fetch("http://localhost:8000/api/config")
-      .then(res => res.json())
-      .then(data => setWebhookSecret(data.hasWebhookSecret))
-      .catch(console.error);
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
-      const baseUrl = "http://localhost:8000";
       if (activeTab === "issues") {
-        const response = await fetch(`${baseUrl}/api/repos/${repoFullName}/issues`);
+        const response = await fetch(`${API_URL}/api/repos/${repoFullName}/issues`);
         if (!response.ok) throw new Error("Failed to fetch issues");
         const data = await response.json();
         setIssues(data.issues);
       } else {
-        const response = await fetch(`${baseUrl}/api/jobs`);
+        const response = await fetch(`${API_URL}/api/jobs`);
         if (!response.ok) throw new Error("Failed to fetch jobs");
         const data = await response.json();
         setJobs(data.filter((job: Job) => job.repo === repoFullName));
@@ -101,17 +73,11 @@ export default function RepositoryDetails() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, repoFullName]);
 
   useEffect(() => {
     fetchData();
-  }, [activeTab, repoFullName]);
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopySuccess(true);
-    setTimeout(() => setCopySuccess(false), 2000);
-  };
+  }, [fetchData]);
 
   return (
     <div className="min-h-screen bg-[#020202] text-zinc-100 font-modern selection:bg-orange-500/30">
@@ -189,7 +155,7 @@ export default function RepositoryDetails() {
                         
                         <div className="flex items-center gap-4 mt-6">
                            <div className="flex items-center gap-2">
-                              <img src={issue.user.avatar_url} className="w-5 h-5 rounded-full border border-zinc-800" alt="" />
+                              <Image src={issue.user.avatar_url} width={20} height={20} className="rounded-full border border-zinc-800" alt={issue.user.login} />
                               <span className="text-[10px] font-bold text-zinc-600 uppercase">{issue.user.login}</span>
                            </div>
                            <div className="w-1 h-1 bg-zinc-800 rounded-full" />

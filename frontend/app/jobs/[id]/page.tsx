@@ -3,18 +3,26 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, FileCode, Clock, Terminal, MessageSquare, Cpu, Zap, Shield, Loader2, CheckCircle2, AlertCircle, User, ExternalLink, ChevronDown, Trash2, Settings } from 'lucide-react';
+import { ArrowLeft, FileCode, Terminal, Cpu, Zap, Loader2, AlertCircle, User, ExternalLink } from 'lucide-react';
+import Image from 'next/image';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import { cn } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { getSocket } from '@/lib/socket';
+
+interface JobLogMetadata {
+  file_path?: string;
+  new_content?: string;
+  repo?: string;
+  url?: string;
+}
 
 interface JobLogEntry {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
   type: 'message' | 'command' | 'file_change' | 'error' | 'info' | 'screenshot';
   content: string;
-  metadata?: any;
+  metadata?: JobLogMetadata;
   createdAt: string;
 }
 
@@ -39,73 +47,69 @@ export default function JobDetailPage() {
 
   useEffect(() => {
     let isMounted = true;
-    const fetchLogs = async () => {
+
+    async function fetchLogs(): Promise<void> {
       try {
         const res = await fetch(`/api/jobs/${jobId}/feed`);
         if (!res.ok) throw new Error('Failed to fetch logs');
         const data = await res.json();
-        
+
         if (isMounted) {
           setLogs(data.entries || []);
-          
+
           const changes: FileChange[] = [];
-          const seenPaths = new Set();
-          
+          const seenPaths = new Set<string>();
+
           [...(data.entries || [])].reverse().forEach((log: JobLogEntry) => {
-             if ((log.type === 'file_change' || log.metadata?.file_path) && log.metadata?.new_content) {
-               const path = log.metadata.file_path;
-               if (!seenPaths.has(path)) {
-                 changes.push({
-                   path,
-                   content: log.metadata.new_content,
-                   reason: log.content,
-                   timestamp: log.createdAt
-                 });
-                 seenPaths.add(path);
-               }
-             }
+            if ((log.type === 'file_change' || log.metadata?.file_path) && log.metadata?.new_content) {
+              const path = log.metadata.file_path as string;
+              if (!seenPaths.has(path)) {
+                changes.push({
+                  path,
+                  content: log.metadata.new_content,
+                  reason: log.content,
+                  timestamp: log.createdAt
+                });
+                seenPaths.add(path);
+              }
+            }
           });
-          
+
           setFileChanges(changes);
           if (!selectedFile && changes.length > 0) {
             setSelectedFile(changes[0].path);
           }
         }
-      } catch (err) {
-        console.error(err);
       } finally {
         if (isMounted) setLoading(false);
       }
-    };
+    }
 
     fetchLogs();
 
-    // Setup Socket.IO
     const socket = getSocket();
-    
+
     socket.emit('join_job', { jobId });
 
     socket.on('job_log', (data: { jobId: string; entry: JobLogEntry }) => {
       if (data.jobId === jobId) {
         setLogs(prev => {
-          // Prevent duplicates
           if (prev.some(l => l.id === data.entry.id)) return prev;
           return [...prev, data.entry];
         });
 
-        // Update file changes if it's a file_change
         const log = data.entry;
         if ((log.type === 'file_change' || log.metadata?.file_path) && log.metadata?.new_content) {
-          const path = log.metadata.file_path;
+          const path = log.metadata.file_path as string;
           setFileChanges(prev => {
             const index = prev.findIndex(f => f.path === path);
-            const newChange = {
+            const newChange: FileChange = {
               path,
-              content: log.metadata.new_content,
+              content: log.metadata?.new_content as string,
               reason: log.content,
               timestamp: log.createdAt
             };
-            
+
             if (index !== -1) {
               const updated = [...prev];
               updated[index] = newChange;
@@ -119,14 +123,10 @@ export default function JobDetailPage() {
       }
     });
 
-    socket.on('job_status', (data: { jobId: string; status: string; stage?: string }) => {
-      if (data.jobId === jobId) {
-        // We might want to update some local state for status/stage here if we had it
-        // For now, it's just reflected in logs, but we could add status state if needed.
-        console.log('Job status updated:', data);
-      }
+    socket.on('job_status', () => {
+      // Status updates are reflected in logs
     });
-    
+
     return () => {
       isMounted = false;
       socket.emit('leave_job', { jobId });
@@ -172,7 +172,7 @@ export default function JobDetailPage() {
              {session?.user && (
                <div className="w-8 h-8 rounded-full border border-zinc-800 overflow-hidden bg-zinc-900 flex items-center justify-center">
                  {session.user.image ? (
-                   <img src={session.user.image} alt="User" className="w-full h-full object-cover" />
+                   <Image src={session.user.image} alt="User" width={32} height={32} className="object-cover" />
                  ) : (
                    <User className="w-4 h-4 text-zinc-600" />
                  )}
@@ -337,6 +337,7 @@ export default function JobDetailPage() {
                                 </a>
                              </div>
                              <div className="relative aspect-video bg-zinc-900/20">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   src={log.content}
                                   alt="Screenshot"

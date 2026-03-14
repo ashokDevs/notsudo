@@ -8,20 +8,19 @@ import RepoSelector from "@/components/dashboard/RepoSelector";
 import { ModelSelector } from "@/components/dashboard/ModelSelector";
 import PromptInput from "@/components/dashboard/PromptInput";
 import RecentSessions from "@/components/dashboard/RecentSessions";
-import Link from "next/link";
-import { 
-  Settings,
-  MessageSquare,
-  Trash2,
-  ChevronDown,
-  User,
-  Info,
-  ExternalLink,
-  Terminal,
-  Download,
-  Code2,
-  Loader2
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
+
+interface GitHubLabel {
+  name: string;
+  color?: string;
+}
+
+interface GitHubIssue {
+  number: number;
+  title: string;
+  created_at: string;
+  labels: GitHubLabel[];
+}
 
 export default function Dashboard() {
   const router = useRouter();
@@ -32,8 +31,8 @@ export default function Dashboard() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState("OVERVIEW");
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [autoFindIssues, setAutoFindIssues] = useState(true);
-  const [suggestedIssues, setSuggestedIssues] = useState<any[]>([]);
+  const [autoFindIssues] = useState(true);
+  const [suggestedIssues, setSuggestedIssues] = useState<GitHubIssue[]>([]);
   const [loadingIssues, setLoadingIssues] = useState(false);
 
   useEffect(() => {
@@ -61,9 +60,9 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    const fetchIssues = async () => {
+    async function fetchIssues(): Promise<void> {
       if (!selectedRepo || !autoFindIssues) return;
-      
+
       setLoadingIssues(true);
       try {
         const res = await fetch(`/api/repos/${selectedRepo}/issues`);
@@ -74,27 +73,25 @@ export default function Dashboard() {
             setActiveTab("SUGGESTED");
           }
         }
-      } catch (err) {
-        console.error("Failed to fetch issues", err);
       } finally {
         setLoadingIssues(false);
       }
-    };
+    }
 
     fetchIssues();
-  }, [selectedRepo, autoFindIssues]);
+  }, [selectedRepo, autoFindIssues, activeTab]);
 
-  const handleCloseOnboarding = () => {
+  function handleCloseOnboarding(): void {
     setShowOnboarding(false);
     localStorage.setItem("notsudo_onboarding_seen", "true");
-  };
+  }
 
-  const handlePromptSubmit = async (prompt: string) => {
+  async function handlePromptSubmit(prompt: string): Promise<void> {
     if (!selectedRepo || !session?.user?.id) return;
-    
+
     setIsProcessing(true);
     try {
-      const res = await fetch("/api/jobs", {
+      await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -103,17 +100,10 @@ export default function Dashboard() {
           user_id: session.user.id
         })
       });
-      
-      const data = await res.json();
-      if (data.success) {
-        console.log("Job started:", data.job_id);
-      }
-    } catch (err) {
-      console.error("Failed to start job", err);
     } finally {
       setIsProcessing(false);
     }
-  };
+  }
 
   if (isPending) {
     return (
@@ -205,8 +195,8 @@ export default function Dashboard() {
                           </h4>
                           {issue.labels && issue.labels.length > 0 && (
                             <div className="flex flex-wrap gap-1.5 mt-3">
-                              {issue.labels.map((label: any) => (
-                                <span 
+                              {issue.labels.map((label: GitHubLabel) => (
+                                <span
                                   key={label.name}
                                   className="text-[9px] px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400 font-medium"
                                   style={{ borderColor: label.color ? `#${label.color}40` : undefined }}
@@ -217,11 +207,10 @@ export default function Dashboard() {
                             </div>
                           )}
                         </div>
-                        <button 
+                        <button
                           className="flex items-center gap-2 px-4 py-2 bg-white text-black text-xs font-bold rounded-xl opacity-0 group-hover:opacity-100 transition-all hover:bg-zinc-200 active:scale-95"
                           onClick={() => {
-                             // This will pre-fill the prompt input
-                             const input = document.querySelector('textarea');
+                             const input = document.querySelector('textarea') as HTMLTextAreaElement | null;
                              if (input) {
                                input.value = `Fix issue #${issue.number}: ${issue.title}`;
                                input.focus();

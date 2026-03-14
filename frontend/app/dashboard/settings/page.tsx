@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Github, Check, AlertCircle, LogOut, Bot, Save, Loader2, ArrowLeft, User, MessageSquare, Trash2, Settings as SettingsIcon, ChevronDown } from "lucide-react";
+import { Github, Check, AlertCircle, LogOut, Bot, Save, Loader2, Trash2, ChevronDown } from "lucide-react";
+import Image from "next/image";
 import { authClient } from "@/lib/auth-client";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -18,7 +18,6 @@ export default function SettingsPage() {
   const { data: session } = authClient.useSession();
   const isConnected = !!session;
 
-  // AI Settings state
   const [models, setModels] = useState<AIModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [customRules, setCustomRules] = useState<string>("");
@@ -28,9 +27,8 @@ export default function SettingsPage() {
   const [deletingAccount, setDeletingAccount] = useState(false);
   const router = useRouter();
 
-  // Fetch available models
   useEffect(() => {
-    const fetchModels = async () => {
+    async function fetchModels(): Promise<void> {
       try {
         const res = await fetch(`${API_URL}/api/models`);
         if (res.ok) {
@@ -40,16 +38,15 @@ export default function SettingsPage() {
             setSelectedModel(data.default);
           }
         }
-      } catch (error) {
-        console.error("Failed to fetch models:", error);
+      } catch {
+        // Silently fail - models will remain empty
       }
-    };
+    }
     fetchModels();
-  }, []);
+  }, [selectedModel]);
 
-  // Fetch user's AI settings
   useEffect(() => {
-    const fetchSettings = async () => {
+    async function fetchSettings(): Promise<void> {
       if (!session?.user?.id) return;
       setLoadingSettings(true);
       try {
@@ -59,16 +56,14 @@ export default function SettingsPage() {
           if (data.selectedModel) setSelectedModel(data.selectedModel);
           if (data.customRules) setCustomRules(data.customRules);
         }
-      } catch (error) {
-        console.error("Failed to fetch AI settings:", error);
       } finally {
         setLoadingSettings(false);
       }
-    };
+    }
     fetchSettings();
   }, [session?.user?.id]);
 
-  const handleSaveSettings = async () => {
+  async function handleSaveSettings(): Promise<void> {
     if (!session?.user?.id) return;
     setSavingSettings(true);
     setSaveSuccess(false);
@@ -84,55 +79,52 @@ export default function SettingsPage() {
       });
       if (res.ok) {
         setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
+        setTimeout(() => setSaveSuccess(false), 3_000);
       }
-    } catch (error) {
-      console.error("Failed to save AI settings:", error);
     } finally {
       setSavingSettings(false);
     }
-  };
+  }
 
-  const handleConnectGithub = async () => {
+  async function handleConnectGithub(): Promise<void> {
     await authClient.signIn.social({
-        provider: "github",
-        callbackURL: "/dashboard/settings"
+      provider: "github",
+      callbackURL: "/dashboard/settings"
     });
-  };
+  }
 
-  const handleDisconnect = async () => {
+  async function handleDisconnect(): Promise<void> {
     await authClient.signOut();
-  };
+  }
 
-  const handleDeleteAccount = async () => {
+  async function handleDeleteAccount(): Promise<void> {
     if (!session?.user?.id) return;
-    
+
     const confirmed = window.confirm(
       "Are you absolutely sure? This will permanently delete your account, all subscriptions, repositories, and job history. This action cannot be undone."
     );
-    
+
     if (!confirmed) return;
-    
+
     setDeletingAccount(true);
     try {
       const res = await fetch(`${API_URL}/api/user/delete?user_id=${session.user.id}`, {
         method: "DELETE",
       });
-      
+
       if (res.ok) {
         await authClient.signOut();
         router.push("/");
       } else {
-        const error = await res.json();
-        alert(error.error || "Failed to delete account");
+        const errorData = await res.json();
+        alert(errorData.error || "Failed to delete account");
       }
-    } catch (error) {
-      console.error("Failed to delete account:", error);
+    } catch {
       alert("An error occurred while deleting your account");
     } finally {
       setDeletingAccount(false);
     }
-  };
+  }
 
   return (
     <div className="min-h-screen bg-[#020202] text-zinc-100 font-modern selection:bg-orange-500/30">
@@ -153,10 +145,12 @@ export default function SettingsPage() {
                   <div className="flex flex-col gap-6">
                     <div className="flex items-center gap-5">
                       {session?.user?.image ? (
-                        <img
+                        <Image
                           src={session.user.image}
                           alt={session.user.name || "User"}
-                          className="w-14 h-14 rounded-2xl border border-zinc-800 overflow-hidden"
+                          width={56}
+                          height={56}
+                          className="rounded-2xl border border-zinc-800"
                         />
                       ) : (
                         <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { signIn, useSession } from "@/lib/auth-client";
 
 export default function LoginPage() {
@@ -10,49 +11,31 @@ export default function LoginPage() {
   const router = useRouter();
   const { data: session, isPending } = useSession();
 
-  // Debug: Log session state on mount and updates
-  useEffect(() => {
-    console.log("[Auth Debug] Session state:", {
-      session,
-      isPending,
-      timestamp: new Date().toISOString(),
-    });
-  }, [session, isPending]);
-
-  // Redirect to dashboard if already logged in
   useEffect(() => {
     if (session?.user) {
-      console.log("[Auth Debug] User already logged in, redirecting to dashboard");
       router.push("/dashboard");
     }
   }, [session, router]);
 
-  const handleGitHubLogin = async () => {
+  async function handleGitHubLogin(): Promise<void> {
     setIsLoading(true);
     setError(null);
-    
-    console.log("[Auth Debug] Starting GitHub OAuth flow...");
-    
+
     try {
       const result = await signIn.social({
         provider: "github",
         callbackURL: "/dashboard",
       });
-      
-      console.log("[Auth Debug] signIn.social result:", result);
-      
+
       if (result.error) {
-        console.error("[Auth Debug] OAuth error:", result.error);
         setError(result.error.message || "Failed to sign in with GitHub");
         setIsLoading(false);
       }
-      // If successful, Better Auth will redirect to GitHub
     } catch (err) {
-      console.error("[Auth Debug] Exception during sign in:", err);
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
       setIsLoading(false);
     }
-  };
+  }
 
   // Show loading state while checking session
   if (isPending) {
@@ -72,7 +55,7 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
-            <img src="/logo.png" alt="NotSudo" className="w-16 h-16" />
+            <Image src="/logo.png" alt="NotSudo" width={64} height={64} />
           </div>
           <h1 className="font-mono text-3xl font-bold text-white mb-2">
             NotSudo
@@ -111,16 +94,6 @@ export default function LoginPage() {
             )}
             <span>{isLoading ? "Signing in..." : "Continue with GitHub"}</span>
           </button>
-
-          {/* Debug Info (only in development) */}
-          {process.env.NODE_ENV === "development" && (
-            <div className="mt-4 p-3 bg-gray-800/50 border border-gray-700 rounded-lg text-xs font-mono text-gray-400">
-              <p className="text-orange-400 mb-1">Debug Info:</p>
-              <p>Session pending: {isPending ? "true" : "false"}</p>
-              <p>User: {session?.user?.email || "Not logged in"}</p>
-              <p>Check browser console for detailed logs</p>
-            </div>
-          )}
 
           {/* Terms */}
           <p className="text-center text-gray-600 text-xs mt-6 font-mono">
