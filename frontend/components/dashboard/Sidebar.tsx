@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useSession, signOut } from "@/lib/auth-client";
+import { useSession } from "@/lib/auth-client";
 import { 
   Plus,
   Search,
@@ -41,8 +41,6 @@ interface SidebarProps {
   setIsCollapsed: (collapsed: boolean) => void;
 }
 
-
-
 export const OctopusIcon = ({ className }: { className?: string }) => (
   <svg 
     viewBox="0 0 24 24" 
@@ -55,8 +53,6 @@ export const OctopusIcon = ({ className }: { className?: string }) => (
     <circle cx="14" cy="8" r="1" fill="black" />
   </svg>
 );
-
-
 
 export function Sidebar({ isMobileOpen, setIsMobileOpen, isCollapsed, setIsCollapsed }: SidebarProps) {
   const pathname = usePathname();
@@ -78,12 +74,10 @@ export function Sidebar({ isMobileOpen, setIsMobileOpen, isCollapsed, setIsColla
         );
         setJobs(sorted.slice(0, 10));
       }
-    } catch (error) {
-      console.error("Failed to fetch jobs:", error);
+    } catch {
+      // Silently handle fetch errors - sidebar will show empty sessions
     }
   };
-
-
 
   useEffect(() => {
     if (userId) {
@@ -120,8 +114,6 @@ export function Sidebar({ isMobileOpen, setIsMobileOpen, isCollapsed, setIsColla
       job.repo.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [jobs, searchQuery]);
-
-
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -261,8 +253,6 @@ export function Sidebar({ isMobileOpen, setIsMobileOpen, isCollapsed, setIsColla
             </div>
           )}
         </section>
-
-
       </div>
 
       {/* Footer - Credit Limit */}

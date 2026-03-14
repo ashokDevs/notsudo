@@ -33,7 +33,7 @@ interface Repo {
   default_branch: string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export function GitHubAppSetup() {
   const [status, setStatus] = useState<GitHubAppStatus | null>(null);
@@ -55,11 +55,11 @@ export function GitHubAppSetup() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/github-app/status`);
+      const res = await fetch(`${API_BASE_URL}/api/github-app/status`);
       const data = await res.json();
       setStatus(data);
-    } catch (error) {
-      console.error('Failed to fetch GitHub App status:', error);
+    } catch {
+      // Silently handle fetch errors - unconfigured state will be shown
     } finally {
       setLoading(false);
     }
@@ -67,28 +67,27 @@ export function GitHubAppSetup() {
 
   const fetchInstallations = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/github-app/installations`);
+      const res = await fetch(`${API_BASE_URL}/api/github-app/installations`);
       const data = await res.json();
       setInstallations(data.installations || []);
-      
-      // Auto-select first installation if only one
+
       if (data.installations?.length === 1) {
         setSelectedInstallation(data.installations[0].id);
         fetchRepos(data.installations[0].id);
       }
-    } catch (error) {
-      console.error('Failed to fetch installations:', error);
+    } catch {
+      // Silently handle fetch errors - empty installations will be shown
     }
   };
 
   const fetchRepos = async (installationId: number) => {
     setLoadingRepos(true);
     try {
-      const res = await fetch(`${API_URL}/api/github-app/installations/${installationId}/repos`);
+      const res = await fetch(`${API_BASE_URL}/api/github-app/installations/${installationId}/repos`);
       const data = await res.json();
       setRepos(data.repos || []);
-    } catch (error) {
-      console.error('Failed to fetch repos:', error);
+    } catch {
+      // Silently handle fetch errors - empty repos will be shown
     } finally {
       setLoadingRepos(false);
     }

@@ -262,6 +262,3 @@ export function HowItWorksSection() {
     </section>
   );
 }
-
-
-

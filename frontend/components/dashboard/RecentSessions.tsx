@@ -28,8 +28,8 @@ export default function RecentSessions() {
       const res = await fetch(`/api/jobs?user_id=${userId}`);
       const data = await res.json();
       setJobs(Array.isArray(data) ? data.slice(0, 5) : (data.jobs ? data.jobs.slice(0, 5) : []));
-    } catch (err) {
-      console.error("Failed to fetch jobs", err);
+    } catch {
+      // Silently handle fetch errors - empty jobs will be displayed
     } finally {
       setLoading(false);
     }

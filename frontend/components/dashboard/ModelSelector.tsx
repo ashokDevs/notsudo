@@ -15,7 +15,7 @@ interface ModelSelectorProps {
   selectedModelId?: string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export function ModelSelector({ onSelect, selectedModelId }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -25,13 +25,13 @@ export function ModelSelector({ onSelect, selectedModelId }: ModelSelectorProps)
   useEffect(() => {
     const fetchModels = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/models`);
+        const res = await fetch(`${API_BASE_URL}/api/models`);
         if (res.ok) {
           const data = await res.json();
           setModels(data.models || []);
         }
-      } catch (error) {
-        console.error("Failed to fetch models:", error);
+      } catch {
+        // Silently handle fetch errors - user will see "Select model" fallback
       } finally {
         setIsLoading(false);
       }
@@ -96,4 +96,3 @@ export function ModelSelector({ onSelect, selectedModelId }: ModelSelectorProps)
     </div>
   );
 }
-

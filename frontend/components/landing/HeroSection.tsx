@@ -4,8 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { WaitlistModal } from "@/components/ui/WaitlistModal";
 
-
-
 // Types for our retro game entities
 interface Point {
   x: number;
