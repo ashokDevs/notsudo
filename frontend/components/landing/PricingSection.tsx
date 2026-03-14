@@ -80,8 +80,6 @@ export function PricingSection() {
       });
 
       if (error) {
-        console.error("Checkout error:", error);
-        // Fallback or show error
         setIsWaitlistOpen(true);
         return;
       }
@@ -89,8 +87,7 @@ export function PricingSection() {
       if (data?.url) {
         window.location.href = data.url;
       }
-    } catch (err) {
-      console.error("Checkout error:", err);
+    } catch {
       setIsWaitlistOpen(true);
     }
   };

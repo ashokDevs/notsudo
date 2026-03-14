@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ExternalLink,
   Github,
   AlertCircle,
-  CheckCircle2,
-  Clock,
   ChevronDown,
   ChevronUp,
   FileText
@@ -45,8 +43,8 @@ export function JobsTable() {
         const data = await response.json();
         setJobs(data);
       }
-    } catch (error) {
-      console.error("Failed to fetch jobs:", error);
+    } catch {
+      // Silently handle fetch errors - loading state will remain
     } finally {
       setLoading(false);
     }
@@ -134,9 +132,8 @@ export function JobsTable() {
             </thead>
             <tbody className="text-sm">
               {jobs.map((job) => (
-                <>
+                <React.Fragment key={job.id}>
                   <tr
-                    key={job.id}
                     className={`border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer ${expandedJobId === job.id ? 'bg-white/5' : ''}`}
                     onClick={() => toggleExpand(job.id)}
                   >
@@ -249,7 +246,7 @@ export function JobsTable() {
                       </td>
                     </tr>
                   )}
-                </>
+                </React.Fragment>
               ))}
             </tbody>
           </table>

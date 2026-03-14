@@ -50,8 +50,8 @@ export function RepoList() {
       if (!res.ok) throw new Error('Failed to fetch repositories');
       const data = await res.json();
       setRepos(data.repos || []);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
     }
@@ -68,8 +68,8 @@ export function RepoList() {
       if (!res.ok) throw new Error('Failed to check webhooks');
       const data = await res.json();
       setWebhookStatuses(prev => ({ ...prev, ...data.statuses }));
-    } catch (err: any) {
-      console.error('Error checking webhooks:', err);
+    } catch {
+      // Silently handle webhook check errors - statuses will remain unknown
     } finally {
       setCheckingWebhooks(false);
     }
@@ -98,8 +98,9 @@ export function RepoList() {
         ...prev,
         [repo.full_name]: !isEnabled
       }));
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      alert(`Error: ${message}`);
     } finally {
       setProcessing(null);
     }
@@ -140,8 +141,9 @@ export function RepoList() {
         // Let's re-check statuses for accuracy.
         await checkWebhooks(visibleRepos.map(r => r.full_name));
 
-    } catch (err: any) {
-        alert(`Error: ${err.message}`);
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        alert(`Error: ${message}`);
     } finally {
         setBulkProcessing(false);
     }

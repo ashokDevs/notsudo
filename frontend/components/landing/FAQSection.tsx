@@ -94,4 +94,3 @@ export function FAQSection() {
     </section>
   );
 }
-

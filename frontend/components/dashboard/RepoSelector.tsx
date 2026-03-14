@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { GitBranch, ChevronDown, Search, Loader2, Check, RefreshCw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface Repo {
   full_name: string;
@@ -38,24 +38,21 @@ export default function RepoSelector({ onSelect, selectedRepo }: RepoSelectorPro
   const fetchRepos = async () => {
     setLoading(true);
     try {
-      // Fetch install URL from GitHub App status
-      const statusRes = await fetch(`${API_URL}/api/github-app/status`);
+      const statusRes = await fetch(`${API_BASE_URL}/api/github-app/status`);
       const statusData = await statusRes.json();
       if (statusData.install_url) {
         setInstallUrl(statusData.install_url);
       }
 
-      // First get installations
-      const installRes = await fetch(`${API_URL}/api/github-app/installations`);
+      const installRes = await fetch(`${API_BASE_URL}/api/github-app/installations`);
       const installData = await installRes.json();
       const installations: Installation[] = installData.installations || [];
-      
-      // Then fetch repos for all installations
+
       const allRepos: Repo[] = [];
       for (const inst of installations) {
-        const repoRes = await fetch(`${API_URL}/api/github-app/installations/${inst.id}/repos`);
+        const repoRes = await fetch(`${API_BASE_URL}/api/github-app/installations/${inst.id}/repos`);
         const repoData = await repoRes.json();
-        const reposFromInstall = (repoData.repos || []).map((r: any) => ({
+        const reposFromInstall = (repoData.repos || []).map((r: { full_name: string; name: string; private: boolean }) => ({
           full_name: r.full_name,
           name: r.name,
           private: r.private
@@ -63,8 +60,8 @@ export default function RepoSelector({ onSelect, selectedRepo }: RepoSelectorPro
         allRepos.push(...reposFromInstall);
       }
       setRepos(allRepos);
-    } catch (err) {
-      console.error("Failed to fetch repos", err);
+    } catch {
+      // Silently handle fetch errors - user will see "No repositories found"
     } finally {
       setLoading(false);
     }
@@ -169,4 +166,3 @@ export default function RepoSelector({ onSelect, selectedRepo }: RepoSelectorPro
     </div>
   );
 }
-
