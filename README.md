@@ -287,6 +287,27 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 
 </div>
 
+---
+
+## Author
+
+**Kakumanu Ashok Reddy** — Full Stack & Cloud Developer
+
+I built NotSudo end-to-end — from the AI agent pipeline and cloud sandbox infrastructure to the real-time dashboard. This project reflects my skills across:
+
+**Backend & Cloud:** Python, Flask, SQLAlchemy, AWS (ECS Fargate, S3, ECR, CloudWatch, IAM, VPC), Docker, Redis, PostgreSQL, REST APIs, WebSockets (Socket.IO)
+
+**Frontend:** Next.js 14, React, TypeScript, Tailwind CSS, Shadcn UI, Real-time UI with Socket.IO
+
+**AI/LLM Integration:** OpenRouter, Groq, OpenAI API, function calling, multi-turn agentic workflows, prompt engineering
+
+**DevOps & Infrastructure:** GitHub Apps & Webhooks, OAuth flows, CI/CD, containerized code execution, sandboxed validation pipelines
+
+**I'm open to work.** If you're hiring for Full Stack, Cloud, AI/LLM, or DevOps roles — I'd love to connect.
+
+[![Email](https://img.shields.io/badge/Email-kakumanuashokreddyias2024@gmail.com-D14836?style=for-the-badge&logo=gmail&logoColor=white)](mailto:kakumanuashokreddyias2024@gmail.com)
+[![GitHub](https://img.shields.io/badge/GitHub-ashokDevs-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ashokDevs)
+
 <!-- Keywords: ai-agent autonomous-agent cloud-agent devops-automation ai-powered-devops llm-agent
 agentic-ai agentic-workflow multi-agent-systems agent-orchestration intelligent-automation
 sre site-reliability-engineering incident-response auto-remediation self-healing-infrastructure
