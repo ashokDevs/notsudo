@@ -33,6 +33,17 @@ interface FileChange {
   timestamp: string;
 }
 
+function formatMarkdown(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-zinc-200">$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code class="bg-zinc-800 text-orange-400 px-1.5 py-0.5 rounded text-xs">$1</code>')
+    .replace(/\n/g, '<br />');
+}
+
 export default function JobDetailPage() {
   const params = useParams();
   const jobId = params.id as string;
@@ -182,78 +193,8 @@ export default function JobDetailPage() {
         </header>
 
         <div className="flex-1 flex overflow-hidden">
-          {/* File Changes Panel */}
-          <div className="w-1/2 flex flex-col border-r border-zinc-800/50 bg-zinc-900/10">
-            <div className="p-4 border-b border-zinc-800/50 flex items-center justify-between bg-zinc-900/20">
-              <div className="flex items-center gap-3">
-                <FileCode className="w-4 h-4 text-zinc-500" />
-                <span className="text-sm font-semibold text-zinc-400 uppercase tracking-tight">Modified files ({fileChanges.length})</span>
-              </div>
-            </div>
-            
-            <div className="flex-1 flex flex-col overflow-hidden relative">
-               {fileChanges.length === 0 ? (
-                 <div className="flex-1 flex flex-col items-center justify-center p-12 gap-4">
-                    <Loader2 className="w-6 h-6 text-zinc-800 animate-spin" />
-                    <span className="text-xs text-zinc-700 font-medium uppercase tracking-widest">Awaiting payload</span>
-                 </div>
-               ) : (
-                 <>
-                   <div className="flex overflow-x-auto bg-zinc-900/30 scrollbar-hide border-b border-zinc-800/50">
-                     {fileChanges.map(file => (
-                       <button
-                         key={file.path}
-                         onClick={() => setSelectedFile(file.path)}
-                         className={cn(
-                           "px-6 py-3 text-xs font-semibold whitespace-nowrap transition-all relative",
-                           selectedFile === file.path 
-                             ? "text-white bg-zinc-900/50" 
-                             : "text-zinc-600 hover:text-zinc-400"
-                         )}
-                       >
-                         {file.path.split('/').pop()}
-                         {selectedFile === file.path && (
-                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-600 rounded-full" />
-                         )}
-                       </button>
-                     ))}
-                   </div>
-                   
-                   <div className="flex-1 overflow-auto bg-[#0a0a0a] relative group border-t border-zinc-800/20">
-                     <ReactDiffViewer 
-                       oldValue="" 
-                       newValue={selectedFileContent} 
-                       splitView={true}
-                       useDarkTheme={true}
-                       styles={{
-                         variables: {
-                           dark: {
-                             diffViewerBackground: 'transparent',
-                             diffViewerColor: '#a1a1aa',
-                             addedBackground: 'rgba(16, 185, 129, 0.05)',
-                             addedColor: '#10b981',
-                             wordAddedBackground: 'rgba(16, 185, 129, 0.1)',
-                             removedBackground: 'rgba(239, 68, 68, 0.05)',
-                             removedColor: '#ef4444',
-                             wordRemovedBackground: 'rgba(239, 68, 68, 0.1)',
-                             gutterBackground: 'transparent',
-                             gutterColor: '#3f3f46',
-                           }
-                         },
-                         line: {
-                            fontFamily: 'var(--font-modern), Menlo, monospace',
-                            fontSize: '13px',
-                         }
-                       }}
-                     />
-                   </div>
-                 </>
-               )}
-            </div>
-          </div>
-
-          {/* Activity Feed Panel */}
-          <div className="w-1/2 flex flex-col bg-zinc-900/5">
+          {/* Activity Feed Panel - LEFT */}
+          <div className="w-1/2 flex flex-col border-r border-zinc-800/50 bg-zinc-900/5">
             <div className="p-4 border-b border-zinc-800/50 flex items-center justify-between bg-zinc-900/20">
               <div className="flex items-center gap-3">
                 <Terminal className="w-4 h-4 text-zinc-500" />
@@ -285,8 +226,8 @@ export default function JobDetailPage() {
                           "w-8 h-8 rounded-lg flex items-center justify-center border transition-all",
                           log.role === 'user' ? "bg-zinc-900 border-zinc-800 text-zinc-500" : "bg-orange-600/10 border-orange-500/20 text-orange-500"
                         )}>
-                          {log.type === 'command' ? <Terminal className="w-4 h-4" /> : 
-                           log.type === 'file_change' ? <FileCode className="w-4 h-4" /> : 
+                          {log.type === 'command' ? <Terminal className="w-4 h-4" /> :
+                           log.type === 'file_change' ? <FileCode className="w-4 h-4" /> :
                            log.type === 'error' ? <AlertCircle className="w-4 h-4" /> :
                            log.role === 'user' ? <User className="w-4 h-4" /> :
                            <Cpu className="w-4 h-4" />}
@@ -308,7 +249,7 @@ export default function JobDetailPage() {
                                 <span className="text-sm font-bold text-orange-400 truncate">{log.metadata?.file_path}</span>
                              </div>
                              <p className="text-xs text-zinc-400 mb-4 line-clamp-2">{log.content}</p>
-                             <button 
+                             <button
                                 onClick={() => {
                                    if (log.metadata?.file_path) {
                                       setSelectedFile(log.metadata.file_path);
@@ -346,12 +287,13 @@ export default function JobDetailPage() {
                              </div>
                           </div>
                         ) : (
-                          <div className={cn(
-                            "text-sm leading-relaxed whitespace-pre-wrap font-medium",
-                            log.type === 'error' ? "text-red-400" : "text-zinc-400"
-                          )}>
-                            {log.content}
-                          </div>
+                          <div
+                            className={cn(
+                              "text-sm leading-relaxed whitespace-pre-wrap font-medium prose-invert",
+                              log.type === 'error' ? "text-red-400" : "text-zinc-400"
+                            )}
+                            dangerouslySetInnerHTML={{ __html: formatMarkdown(log.content || '') }}
+                          />
                         )}
                       </div>
                     </div>
@@ -359,6 +301,76 @@ export default function JobDetailPage() {
                 ))
               )}
               <div ref={logsEndRef} />
+            </div>
+          </div>
+
+          {/* File Changes Panel - RIGHT */}
+          <div className="w-1/2 flex flex-col bg-zinc-900/10">
+            <div className="p-4 border-b border-zinc-800/50 flex items-center justify-between bg-zinc-900/20">
+              <div className="flex items-center gap-3">
+                <FileCode className="w-4 h-4 text-zinc-500" />
+                <span className="text-sm font-semibold text-zinc-400 uppercase tracking-tight">Modified files ({fileChanges.length})</span>
+              </div>
+            </div>
+
+            <div className="flex-1 flex flex-col overflow-hidden relative">
+               {fileChanges.length === 0 ? (
+                 <div className="flex-1 flex flex-col items-center justify-center p-12 gap-4">
+                    <Loader2 className="w-6 h-6 text-zinc-800 animate-spin" />
+                    <span className="text-xs text-zinc-700 font-medium uppercase tracking-widest">Awaiting payload</span>
+                 </div>
+               ) : (
+                 <>
+                   <div className="flex overflow-x-auto bg-zinc-900/30 scrollbar-hide border-b border-zinc-800/50">
+                     {fileChanges.map(file => (
+                       <button
+                         key={file.path}
+                         onClick={() => setSelectedFile(file.path)}
+                         className={cn(
+                           "px-6 py-3 text-xs font-semibold whitespace-nowrap transition-all relative",
+                           selectedFile === file.path
+                             ? "text-white bg-zinc-900/50"
+                             : "text-zinc-600 hover:text-zinc-400"
+                         )}
+                       >
+                         {file.path.split('/').pop()}
+                         {selectedFile === file.path && (
+                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-600 rounded-full" />
+                         )}
+                       </button>
+                     ))}
+                   </div>
+
+                   <div className="flex-1 overflow-auto bg-[#0a0a0a] relative group border-t border-zinc-800/20">
+                     <ReactDiffViewer
+                       oldValue=""
+                       newValue={selectedFileContent}
+                       splitView={false}
+                       useDarkTheme={true}
+                       styles={{
+                         variables: {
+                           dark: {
+                             diffViewerBackground: 'transparent',
+                             diffViewerColor: '#a1a1aa',
+                             addedBackground: 'rgba(16, 185, 129, 0.05)',
+                             addedColor: '#10b981',
+                             wordAddedBackground: 'rgba(16, 185, 129, 0.1)',
+                             removedBackground: 'rgba(239, 68, 68, 0.05)',
+                             removedColor: '#ef4444',
+                             wordRemovedBackground: 'rgba(239, 68, 68, 0.1)',
+                             gutterBackground: 'transparent',
+                             gutterColor: '#3f3f46',
+                           }
+                         },
+                         line: {
+                            fontFamily: 'var(--font-modern), Menlo, monospace',
+                            fontSize: '13px',
+                         }
+                       }}
+                     />
+                   </div>
+                 </>
+               )}
             </div>
           </div>
         </div>
