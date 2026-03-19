@@ -955,7 +955,10 @@ def health_check():
     if github_scopes:
         response['github_scopes'] = github_scopes
 
-    return jsonify(response), 200 if all_healthy else 503
+    # Always return 200 for the liveness probe — external credential issues
+    # should not prevent the service from being considered alive by the
+    # load balancer / platform health check.
+    return jsonify(response), 200
 
 
 @app.route('/api/test-sandbox', methods=['POST'])
