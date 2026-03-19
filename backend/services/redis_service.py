@@ -15,6 +15,23 @@ default_queue = Queue("default", connection=redis_client)
 priority_queue = Queue("high", connection=redis_client)
 
 
+def acquire_lock(key: str, timeout: int = 10):
+    try:
+        return redis_client.set(key, "1", nx=True, ex=timeout)
+    except Exception as e:
+        logger.error("redis_acquire_lock_failed", key=key, error=str(e))
+        return False
+
+
+def release_lock(key: str):
+    try:
+        redis_client.delete(key)
+        return True
+    except Exception as e:
+        logger.error("redis_release_lock_failed", key=key, error=str(e))
+        return False
+
+
 def set_cache(key: str, value: str, expire: int = None):
     try:
         redis_client.set(key, value, ex=expire)
