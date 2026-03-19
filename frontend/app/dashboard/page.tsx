@@ -91,7 +91,7 @@ export default function Dashboard() {
 
     setIsProcessing(true);
     try {
-      await fetch("/api/jobs", {
+      const res = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -100,6 +100,10 @@ export default function Dashboard() {
           user_id: session.user.id
         })
       });
+      const data = await res.json();
+      if (data.job_id) {
+        router.push(`/jobs/${data.job_id}`);
+      }
     } finally {
       setIsProcessing(false);
     }
